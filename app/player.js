@@ -44,6 +44,7 @@ var Player = (function () {
   }
 
   function stop() {
+    closePanel();
     clearInterval(watchdog);
     clearTimeout(reloadTimer);
     if (hls) { hls.destroy(); hls = null; }
@@ -136,19 +137,67 @@ var Player = (function () {
     start();
   }
 
+  // ---- quality panel: a side list, like Android TV's, instead of cycling blind
+
+  var panelOpen = false, panelOptions = [], panelIndex = 0;
+
   // Automatic first, then each quality from best to worst.
-  function cycleQuality(step) {
-    if (!hls || !hls.levels.length) return;
+  function qualityOptions() {
     var order = [-1];
     hls.levels.map(function (l, i) { return i; })
       .sort(function (a, b) { return hls.levels[b].height - hls.levels[a].height || hls.levels[b].bitrate - hls.levels[a].bitrate; })
       .forEach(function (i) { order.push(i); });
-    var pos = order.indexOf(levelChoice);
-    levelChoice = order[(pos + step + order.length) % order.length];
-    hls.currentLevel = levelChoice;
-    log('player: quality ' + (levelChoice < 0 ? 'auto' : levelName(hls.levels[levelChoice])));
-    renderQuality();
-    showOsd(4000);
+    return order;
+  }
+
+  function openPanel() {
+    if (!hls || !hls.levels.length) return;
+    panelOptions = qualityOptions();
+    panelIndex = Math.max(0, panelOptions.indexOf(levelChoice));
+    panelOpen = true;
+    osd.classList.remove('on');
+    renderPanel();
+    $('qpanel').classList.add('on');
+  }
+
+  function closePanel() {
+    panelOpen = false;
+    $('qpanel').classList.remove('on');
+  }
+
+  function renderPanel() {
+    var list = $('qlist');
+    list.innerHTML = '';
+    panelOptions.forEach(function (lvl, i) {
+      var item = el('div', 'qitem' + (i === panelIndex ? ' focused' : ''));
+      if (lvl < 0) {
+        item.appendChild(el('b', '', 'Otomatik'));
+        var now = levelName(hls.levels[hls.currentLevel]);
+        item.appendChild(el('small', '', 'Bağlantına göre ayarlanır' + (levelChoice < 0 && now ? ' · şu an ' + now : '')));
+      } else {
+        var l = hls.levels[lvl];
+        item.appendChild(el('b', '', levelName(l) + (i === 1 ? ' · Kaynak' : '')));
+        item.appendChild(el('small', '', (l.bitrate / 1000000).toFixed(1).replace('.', ',') + ' Mbps'));
+      }
+      if (lvl === levelChoice) item.appendChild(el('span', 'check', '✓'));
+      list.appendChild(item);
+    });
+  }
+
+  function choose(lvl) {
+    levelChoice = lvl;
+    hls.currentLevel = lvl;
+    log('player: quality ' + (lvl < 0 ? 'auto' : levelName(hls.levels[lvl])));
+    closePanel();
+    showOsd(3000);
+  }
+
+  function handlePanelKey(name) {
+    if (name === 'UP') panelIndex = Math.max(0, panelIndex - 1);
+    else if (name === 'DOWN') panelIndex = Math.min(panelOptions.length - 1, panelIndex + 1);
+    else if (name === 'ENTER') return choose(panelOptions[panelIndex]);
+    else if (name === 'BACK' || name === 'LEFT') return closePanel();
+    renderPanel();
   }
 
   function levelName(l) {
@@ -197,11 +246,11 @@ var Player = (function () {
   }
 
   function handleKey(name) {
+    if (panelOpen) return handlePanelKey(name);
     if (name === 'BACK') close();
     else if (name === 'UP' || name === 'CH_UP') switchChannel(-1);
     else if (name === 'DOWN' || name === 'CH_DOWN') switchChannel(1);
-    else if (name === 'LEFT') cycleQuality(-1);
-    else if (name === 'RIGHT') cycleQuality(1);
+    else if (name === 'LEFT' || name === 'RIGHT') openPanel();
     else if (name === 'ENTER') { if (osd.classList.contains('on')) osd.classList.remove('on'); else showOsd(5000); }
     else if (name === 'PLAY_PAUSE') togglePause();
   }

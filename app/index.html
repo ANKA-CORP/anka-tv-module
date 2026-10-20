@@ -30,7 +30,7 @@
 
   /* Hero: the focused stream */
   #hero { position: absolute; left: 0; top: 0; width: 1920px; height: 640px; }
-  .hero-bg { position: absolute; right: 0; top: 0; width: 1140px; height: 640px; background-size: cover; background-position: center; opacity: 0; transition: opacity .45s ease; }
+  .hero-bg { position: absolute; right: 0; top: 0; width: 1140px; height: 640px; background-size: cover; background-position: center; opacity: 0; transition: opacity .4s ease; will-change: opacity; }
   .hero-bg.on { opacity: 1; }
   #hero-fade { position: absolute; left: 0; top: 0; width: 1920px; height: 640px;
     background: linear-gradient(90deg, var(--bg) 0%, var(--bg) 38%, rgba(11,11,15,.85) 50%, rgba(11,11,15,0) 75%),
@@ -48,15 +48,17 @@
 
   /* Rows */
   #rows { position: absolute; left: 0; top: 618px; width: 1920px; height: 1000px; }
-  #rows-inner { transition: transform .3s ease; }
+  #rows-inner { transition: transform .28s ease-out; will-change: transform; }
   .row { height: 360px; transition: opacity .3s ease; }
   .row.above { opacity: 0; }
   .row-title { padding-left: 96px; height: 52px; font-size: 30px; font-weight: 700; color: #e6e6ea; }
   .row-title small { font-size: 22px; font-weight: 500; color: var(--muted); margin-left: 14px; }
-  .track { position: relative; height: 280px; white-space: nowrap; transition: transform .25s ease; padding-left: 96px; padding-top: 14px; }
+  .track { position: relative; height: 280px; white-space: nowrap; transition: transform .22s ease-out; padding-left: 96px; padding-top: 14px; will-change: transform; }
 
+  /* Only transform and opacity animate: the TV's GPU can't keep up with animated shadows. */
   .card { position: relative; display: inline-block; vertical-align: top; width: 384px; height: 216px; margin-right: 32px; border-radius: 14px; overflow: hidden; background: var(--card);
-    transition: transform .18s ease, box-shadow .18s ease; }
+    transition: transform .15s ease-out; }
+  .card::after { content: ""; position: absolute; left: 0; top: 0; right: 0; bottom: 0; border: 5px solid #fff; border-radius: 14px; opacity: 0; transition: opacity .12s ease-out; }
   .card img.thumb { width: 100%; height: 100%; object-fit: cover; display: block; }
   .card .shade { position: absolute; left: 0; right: 0; bottom: 0; height: 110px; background: linear-gradient(0deg, rgba(0,0,0,.85), rgba(0,0,0,0)); }
   .card .label { position: absolute; left: 18px; right: 18px; bottom: 14px; font-size: 24px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -68,7 +70,8 @@
   .card.offline .label { color: var(--muted); text-align: center; }
   .card.hint { background: #15151b; border: 2px dashed #34343e; }
   .card.hint .label { white-space: normal; text-align: center; top: 60px; bottom: auto; color: var(--muted); font-weight: 600; }
-  .card.focused { transform: scale(1.09); box-shadow: 0 0 0 5px #fff, 0 24px 48px rgba(0,0,0,.65); z-index: 2; }
+  .card.focused { transform: scale(1.09); z-index: 2; }
+  .card.focused::after { opacity: 1; }
   .skeleton { background: linear-gradient(90deg, #17171d 0%, #22222a 50%, #17171d 100%); background-size: 200% 100%; animation: shimmer 1.4s infinite linear; }
   @keyframes shimmer { from { background-position: 100% 0; } to { background-position: -100% 0; } }
 
@@ -97,6 +100,19 @@
   #osd-hints { position: absolute; left: 96px; right: 96px; bottom: 34px; font-size: 21px; color: #a9a9b3; }
   #osd-hints b { display: inline-block; min-width: 30px; padding: 1px 8px; margin-right: 8px; border-radius: 6px; background: rgba(255,255,255,.14); color: #fff; text-align: center; font-weight: 700; }
   #osd-hints span { margin-right: 36px; }
+  /* Quality side panel, Android TV style */
+  #qpanel { position: absolute; right: 0; top: 0; width: 560px; height: 1080px; box-sizing: border-box; padding: 120px 48px 0;
+    background: rgba(16,16,22,.97); box-shadow: -20px 0 60px rgba(0,0,0,.5); transform: translateX(620px); transition: transform .22s ease-out; will-change: transform; }
+  #qpanel.on { transform: translateX(0); }
+  #qpanel h2 { margin: 0 0 8px; font-size: 40px; font-weight: 800; }
+  #qpanel p { margin: 0 0 36px; font-size: 22px; color: var(--muted); }
+  .qitem { position: relative; height: 84px; padding: 0 28px; margin-bottom: 8px; border-radius: 14px; display: flex; flex-direction: column; justify-content: center; }
+  .qitem b { font-size: 30px; font-weight: 700; }
+  .qitem small { font-size: 20px; color: var(--muted); margin-top: 2px; }
+  .qitem .check { position: absolute; right: 28px; top: 50%; margin-top: -18px; font-size: 30px; color: var(--accent); }
+  .qitem.focused { background: #fff; color: #0b0b0f; }
+  .qitem.focused small { color: #55555f; }
+  .qitem.focused .check { color: #0b0b0f; }
   #channel-flash { position: absolute; right: 96px; top: 70px; font-size: 30px; font-weight: 700; padding: 12px 22px; border-radius: 12px; background: rgba(0,0,0,.6); opacity: 0; transition: opacity .2s ease; }
   #channel-flash.on { opacity: 1; }
 
@@ -133,6 +149,7 @@
     <div id="spinner"></div>
     <div id="player-msg"></div>
     <div id="channel-flash"></div>
+    <div id="qpanel"><h2>Kalite</h2><p>▲▼ seç · OK uygula · ↩ kapat</p><div id="qlist"></div></div>
     <div id="osd">
       <div id="osd-main">
         <div id="osd-name"></div>
@@ -141,7 +158,7 @@
       </div>
       <div id="osd-side"><div id="osd-quality"></div></div>
       <div id="osd-hints">
-        <span><b>▲▼</b>Kanal</span><span><b>◀▶</b>Kalite</span><span><b>OK</b>Bilgi</span><span><b>⏯</b>Duraklat</span><span><b>↩</b>Geri</span>
+        <span><b>▲▼</b>Kanal</span><span><b>◀▶</b>Kalite menüsü</span><span><b>OK</b>Bilgi</span><span><b>⏯</b>Duraklat</span><span><b>↩</b>Geri</span>
       </div>
     </div>
   </div>
@@ -149,8 +166,8 @@
   <div id="toasts"></div>
 </div>
 <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.17/dist/hls.min.js"></script>
-<script src="util.js?v=43c0beb"></script>
-<script src="player.js?v=43c0beb"></script>
-<script src="app.js?v=43c0beb"></script>
+<script src="util.js?v=ea5c83e"></script>
+<script src="player.js?v=ea5c83e"></script>
+<script src="app.js?v=ea5c83e"></script>
 </body>
 </html>

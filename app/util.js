@@ -69,10 +69,18 @@ var Toast = (function () {
   var box = null;
   var audio = null;
 
+  function unlockSound() {
+    try {
+      audio = audio || new (window.AudioContext || window.webkitAudioContext)();
+      if (audio.state === 'suspended') audio.resume();
+    } catch (e) { log('audio unavailable: ' + e); }
+  }
+
   // A soft two-note chime, generated so the module needs no sound files.
   function chime() {
     try {
-      audio = audio || new (window.AudioContext || window.webkitAudioContext)();
+      unlockSound();
+      if (audio.state !== 'running') log('chime skipped: audio ' + audio.state + ' (no key pressed yet)');
       [660, 880].forEach(function (freq, i) {
         var o = audio.createOscillator();
         var g = audio.createGain();
@@ -107,5 +115,5 @@ var Toast = (function () {
     }, (n.seconds || 5) * 1000);
   }
 
-  return { show: show };
+  return { show: show, unlockSound: unlockSound };
 })();

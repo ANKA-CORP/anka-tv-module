@@ -153,10 +153,10 @@ function renderSkeleton() {
 // Load images only near the visible window, so the TV doesn't fetch 90 thumbnails at once.
 function loadImages(r) {
   var cards = r.track.children;
-  for (var i = Math.max(0, r.first - 1); i < Math.min(cards.length, r.first + VISIBLE_CARDS + 2); i++) {
+  for (var i = Math.max(0, r.first - 2); i < Math.min(cards.length, r.first + VISIBLE_CARDS + 4); i++) {
     var imgs = cards[i].getElementsByTagName('img');
     for (var j = 0; j < imgs.length; j++) {
-      if (imgs[j].dataset.src && !imgs[j].src) imgs[j].src = imgs[j].dataset.src;
+      if (imgs[j].dataset.src && !imgs[j].src) { imgs[j].decoding = 'async'; imgs[j].src = imgs[j].dataset.src; }
     }
   }
 }
@@ -175,12 +175,14 @@ function updateFocus(instant) {
   var c = r.track.children[r.col];
   if (c) c.classList.add('focused');
   var s = r.items[r.col];
+  if (!s) return;
+  renderHeroText(s);
   clearTimeout(heroTimer);
-  // Wait for the remote to settle before swapping the big picture.
-  if (s) heroTimer = setTimeout(function () { renderHero(s); }, instant ? 0 : 160);
+  // The text follows the focus at once; the big picture waits for the remote to settle.
+  heroTimer = setTimeout(function () { renderHeroImage(s); }, instant ? 0 : 250);
 }
 
-function renderHero(s) {
+function renderHeroText(s) {
   var tags = $('hero-tags');
   tags.innerHTML = '';
   tags.appendChild(el('span', s.live ? 'pill live' : 'pill off', s.live ? 'CANLI' : 'ÇEVRİMDIŞI'));
@@ -191,7 +193,9 @@ function renderHero(s) {
   name.appendChild(document.createTextNode(s.name));
   $('hero-title').textContent = s.live ? s.title : 'Şu an yayında değil.';
   $('hero-meta').textContent = metaLine(s) + (Favourites.has(s.slug) ? '  ·  ★ Favori' : '');
+}
 
+function renderHeroImage(s) {
   var bg = s.live ? s.hero : s.offlineImage || '';
   if (s.slug === heroSlug && bg) return;
   heroSlug = s.slug;
@@ -283,10 +287,28 @@ function handleKeyUp(name) {
   if (enterTimer) { clearTimeout(enterTimer); enterTimer = null; if (!enterLong) activate(); }
 }
 
+// Time from a key press to the frame that shows it, logged every 20 presses so the Mac can see lag.
+var latencies = [];
+
+function measure(t0) {
+  requestAnimationFrame(function () {
+    requestAnimationFrame(function () {
+      latencies.push(performance.now() - t0);
+      if (latencies.length < 20) return;
+      var sum = latencies.reduce(function (a, b) { return a + b; }, 0);
+      log('key-to-frame avg ' + Math.round(sum / latencies.length) + ' ms, max ' + Math.round(Math.max.apply(null, latencies)) + ' ms');
+      latencies = [];
+    });
+  });
+}
+
 document.addEventListener('keydown', function (e) {
   var name = keyName(e.keyCode);
   if (!name) return;
   e.preventDefault();
+  // Browsers only allow sound after a key press, so the toast chime is unlocked here.
+  Toast.unlockSound();
+  measure(performance.now());
   handleKeyDown(name, e.repeat);
 });
 document.addEventListener('keyup', function (e) {

@@ -186,10 +186,15 @@ var Toast = (function () {
     void card.offsetWidth;   // restart the entrance animation
     card.classList.add('on');
     if (n.sound !== false) alarm();
-    boss.hide = setTimeout(function () {
-      card.classList.remove('on');
-      clearInterval(boss.timer);
-    }, (n.seconds || 30) * 1000);
+    boss.hide = setTimeout(closeBoss, (n.seconds || 30) * 1000);
+  }
+
+  function bossOpen() { return document.getElementById('boss').classList.contains('on'); }
+
+  function closeBoss() {
+    document.getElementById('boss').classList.remove('on');
+    clearInterval(boss.timer);
+    clearTimeout(boss.hide);
   }
 
   // show("text") or show({ text, title, level: 'info' | 'warn' | 'error', sound, seconds }); kind 'boss' gets the boss card.
@@ -210,5 +215,5 @@ var Toast = (function () {
     }, (n.seconds || 5) * 1000);
   }
 
-  return { show: show, unlockSound: unlockSound };
+  return { show: show, unlockSound: unlockSound, bossOpen: bossOpen, closeBoss: closeBoss };
 })();

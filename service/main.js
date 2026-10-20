@@ -11,6 +11,7 @@
 //   GET /favourites, POST /favourites   the favourite slugs (JSON array), saved on the TV; shared by the page and the dashboard
 //   GET /settings, POST /settings       app settings (JSON object, merged), e.g. {"theme": "ocean"}
 //   GET /apps, POST /launch?id=X        installed TV apps from a known list, and launching one
+//   GET /tizen-apps                     every installed app as Tizen sees it (id, name, package, icon path)
 //   GET /weather, POST /city            current weather for the saved city; POST a city name to set it
 //   POST /state, GET /state             what the page shows now (grid or player, channel, quality, version)
 //   GET /                               the web dashboard, for a phone or the Mac: http://<tv ip>:8090/
@@ -26,7 +27,7 @@ var url = require('url');
 // Not 8085: the spike module's service may still hold it until TizenBrew restarts.
 var PORT = 8090;
 // tools/publish.sh writes the published version here.
-var SERVICE_VERSION = '0.32.0 (4a4a948)';
+var SERVICE_VERSION = '0.33.0 (072f6fa)';
 var UA = 'Mozilla/5.0 (SMART-TV; Linux; Tizen 6.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/76.0.3809.146 TV Safari/537.36';
 var CACHE_MS = 20000;
 // TizenBrew keeps its own config in /home/owner/share; tools/dev.sh points these elsewhere on the Mac.
@@ -114,6 +115,28 @@ function installedApps(cb) {
       }
     });
   });
+}
+
+// TizenBrew hands the service Tizen's device API (the page doesn't get it). Installed apps, cached for 10 minutes.
+function tizenApps(cb) {
+  if (typeof tizen === 'undefined' || !tizen || !tizen.application) return cb(new Error('no Tizen API'));
+  var hit = cache.tizenApps;
+  if (hit && Date.now() - hit.at < 600000) return cb(null, hit.data);
+  try {
+    tizen.application.getAppsInfo(function (list) {
+      var data = list.map(function (a) { return { id: a.id, name: a.name, packageId: a.packageId, iconPath: a.iconPath }; });
+      cache.tizenApps = { at: Date.now(), data: data };
+      cb(null, data);
+    }, function (e) { cb(new Error(e.name + ': ' + e.message)); });
+  } catch (e) { cb(e); }
+}
+
+function plain(s) { return String(s || '').toLowerCase().replace(/[^a-z0-9]/g, ''); }
+
+// Our catalogue has store ids (what the REST API takes); Tizen's ids differ, so try the package id, then the name.
+function tizenAppFor(app, list) {
+  return list.filter(function (a) { return a.packageId === app.id || a.id === app.id; })[0] ||
+    list.filter(function (a) { return plain(a.name) === plain(app.name); })[0] || null;
 }
 
 // Weather from Open-Meteo (no key) for the city saved in settings (lat/lon from its geocoder).
@@ -265,9 +288,11 @@ function queue(req, res, list, parse) {
 }
 
 // ---- Black Desert boss alerts (EU). The schedule comes from MMOTIMER's page: Garmoth answers scripts with a
-// Cloudflare challenge. Its "spawns in" column avoids guessing which time zone the page's clock column is in.
+// Cloudflare challenge. Its weekly grid holds every spawn (the "upcoming" list skips the next one, shown apart).
 var BOSS_URL = 'https://mmotimer.com/bdo/?server=eu';
 var BOSS_ALERT_MS = 20 * 60000;
+var WEEK_MIN = 7 * 1440;
+var DAYS = { Sunday: 0, Monday: 1, Tuesday: 2, Wednesday: 3, Thursday: 4, Friday: 5, Saturday: 6 };
 var bossCache = null;
 var bossAlerted = shared.bossAlerted || (shared.bossAlerted = {});
 
@@ -276,27 +301,59 @@ function bossImage(name) {
   return 'https://mmotimer.com/img/' + file + '_big.png';
 }
 
-// Table rows look like: "Kzarka, Kutum" | "00:15 Wednesday" | "02:37:35".
-function parseBosses(html, now) {
+// Minutes since Sunday 00:00 UTC.
+function weekMinute(ms) {
+  var d = new Date(ms);
+  return d.getUTCDay() * 1440 + d.getUTCHours() * 60 + d.getUTCMinutes();
+}
+
+// The grid is in the page's own time zone (Berlin time, though it says CET). The upcoming list pairs a clock time
+// ("00:15 Wednesday") with a countdown ("02:37:35"); the two give the zone's offset, summer time included.
+function pageOffset(html, now) {
   var at = html.indexOf('id="mainTbl"');
-  if (at < 0) return [];
+  if (at < 0) return null;
   var rows = html.slice(at, html.indexOf('</table>', at)).match(/<tr[\s\S]*?<\/tr>/g) || [];
-  var spawns = [];
-  rows.forEach(function (r) {
-    var cells = (r.match(/<td[^>]*>[\s\S]*?<\/td>/g) || []).map(function (c) {
+  for (var i = 0; i < rows.length; i++) {
+    var cells = (rows[i].match(/<td[^>]*>[\s\S]*?<\/td>/g) || []).map(function (c) {
       return c.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
     });
-    var left = cells.length >= 3 && /^(\d+):(\d\d):(\d\d)$/.exec(cells[2]);
-    if (!left) return;
-    var ms = ((+left[1]) * 3600 + (+left[2]) * 60 + (+left[3])) * 1000;
-    spawns.push({
-      // Spawns are on the minute; rounding drops the seconds the page took to arrive.
-      at: Math.round((now + ms) / 60000) * 60000,
-      bosses: cells[0].split(',').map(function (n) { return n.trim(); }).filter(function (n) { return n; })
-        .map(function (n) { return { name: n, image: bossImage(n) }; })
+    var clock = cells.length >= 3 && /^(\d\d):(\d\d) (\w+day)$/.exec(cells[1]);
+    var left = clock && /^(\d+):(\d\d):(\d\d)$/.exec(cells[2]);
+    if (!left || DAYS[clock[3]] === undefined) continue;
+    var spawn = now + ((+left[1]) * 3600 + (+left[2]) * 60 + (+left[3])) * 1000;
+    var local = DAYS[clock[3]] * 1440 + (+clock[1]) * 60 + (+clock[2]);
+    var diff = ((local - weekMinute(spawn)) % WEEK_MIN + WEEK_MIN) % WEEK_MIN;
+    if (diff > WEEK_MIN / 2) diff -= WEEK_MIN;
+    return Math.round(diff / 15) * 15;
+  }
+  return null;
+}
+
+// The grid: a header row of times, then one row per day ("Tue") with a cell per time, bosses split by <br>.
+// The time comes from the column, not the cells' ids: one id is wrong on the page (12:00 says 14:00).
+function parseBosses(html, now) {
+  var offset = pageOffset(html, now);
+  var at = html.indexOf('class="table main-table"');
+  if (offset === null || at < 0) return [];
+  var rows = html.slice(at, html.indexOf('</table>', at)).match(/<tr[\s\S]*?<\/tr>/g) || [];
+  var times = (rows[0] || '').match(/\d\d:\d\d/g) || [];
+  var nowMin = Math.floor(now / 60000);
+  var spawns = [];
+  rows.slice(1).forEach(function (r) {
+    var day = /<th[^>]*>\s*(\w{3})\s*<\/th>/.exec(r);
+    var dayIndex = day ? ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(day[1]) : -1;
+    if (dayIndex < 0) return;
+    (r.match(/<td[^>]*>[\s\S]*?<\/td>/g) || []).forEach(function (c, col) {
+      var names = c.replace(/<\/td>$/, '').split(/<br\s*\/?>/).map(function (n) { return n.replace(/<[^>]+>/g, '').trim(); })
+        .filter(function (n) { return n && n !== '-'; });
+      var hm = times[col] && /^(\d\d):(\d\d)$/.exec(times[col]);
+      if (!names.length || !hm) return;
+      var utc = dayIndex * 1440 + (+hm[1]) * 60 + (+hm[2]) - offset;
+      var ahead = ((utc - weekMinute(now)) % WEEK_MIN + WEEK_MIN) % WEEK_MIN;
+      spawns.push({ at: (nowMin + ahead) * 60000, bosses: names.map(function (n) { return { name: n, image: bossImage(n) }; }) });
     });
   });
-  return spawns;
+  return spawns.sort(function (x, y) { return x.at - y.at; });
 }
 
 function bosses(cb) {
@@ -397,9 +454,28 @@ function handle(req, res) {
     if (!app) return reply(res, 400, 'text/plain', 'unknown app');
     log('launch ' + app.name);
     if (!TV_API) return replyJson(res, { launched: false, dev: true });
-    return tvApi('POST', app.id, function (err, status) {
-      if (err || status !== 200) return fail(res, 'launch ' + app.name, err || status);
-      replyJson(res, { launched: true });
+    // The REST API answers 401 to the TV itself, so Tizen's own launcher goes first.
+    return tizenApps(function (err, list) {
+      var t = !err && tizenAppFor(app, list);
+      if (!t) {
+        log('launch ' + app.name + ': no Tizen match (' + (err || 'not installed?') + '), trying the REST API');
+        return tvApi('POST', app.id, function (err2, status) {
+          if (err2 || status !== 200) return fail(res, 'launch ' + app.name, err2 || status);
+          replyJson(res, { launched: true });
+        });
+      }
+      try {
+        tizen.application.launch(t.id, function () {
+          log('launched ' + app.name + ' (' + t.id + ')');
+          replyJson(res, { launched: true });
+        }, function (e) { fail(res, 'launch ' + app.name + ' (' + t.id + ')', e.name + ' ' + e.message); });
+      } catch (e) { fail(res, 'launch ' + app.name, e); }
+    });
+  }
+  if (u.pathname === '/tizen-apps') {
+    return tizenApps(function (err, list) {
+      if (err) return fail(res, 'tizen apps', err);
+      replyJson(res, list);
     });
   }
   if (u.pathname === '/weather') {

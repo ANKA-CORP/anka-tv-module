@@ -438,6 +438,8 @@ function exitApp() {
 var enterTimer = null, enterLong = false;
 
 function handleKeyDown(name, repeat) {
+  // OK or Back first dismisses a boss alert, over the home screen and the player alike.
+  if (Toast.bossOpen() && (name === 'ENTER' || name === 'BACK')) { Toast.closeBoss(); return; }
   if (Player.isOpen()) { if (!repeat || name !== 'ENTER') Player.handleKey(name); return; }
   if (name === 'ENTER') {
     if (repeat || enterTimer) return;

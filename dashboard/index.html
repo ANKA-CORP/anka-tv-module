@@ -281,6 +281,9 @@
         <div class="remote-extra">
           <button data-key="BACK">↩ Geri</button><button data-key="PLAY_PAUSE" aria-label="Oynat / duraklat">⏯</button><button data-cmd="refresh">↻ Yenile</button>
         </div>
+        <div class="remote-extra">
+          <button data-tv="KEY_VOLDOWN" aria-label="Sesi kıs">🔉 −</button><button data-tv="KEY_MUTE" aria-label="Sessiz">🔇</button><button data-tv="KEY_VOLUP" aria-label="Sesi aç">🔊 +</button>
+        </div>
       </section>
     </div>
 
@@ -673,6 +676,14 @@
     Array.prototype.forEach.call(document.querySelectorAll('[data-sleep]'), function (b) { b.classList.toggle('primary', b.dataset.sleep === '0' && !sleepAt); });
     $('sleep-hint').textContent = sleepAt ? 'TV ' + hm(sleepAt) + '\'de uyuyacak (' + Math.max(1, Math.round((sleepAt - Date.now()) / 60000)) + ' dk).' : 'Süre dolunca yayın kapanır; TV\'ye bağlıysa TV de kapanır.';
   }
+
+  // TV keys on the TV's own remote channel (volume, mute): they need "anka tv" allowed once (Ayarlar → TV'ye bağlan).
+  Array.prototype.forEach.call(document.querySelectorAll('[data-tv]'), function (b) {
+    b.addEventListener('click', function () {
+      post('/remote?key=' + b.dataset.tv, '').catch(function () { toast('Önce TV\'ye bağlan: Ayarlar → PlayStation 5 → TV\'ye bağlan', true); });
+      if (navigator.vibrate) navigator.vibrate(10);
+    });
+  });
 
   // ---- messages
 

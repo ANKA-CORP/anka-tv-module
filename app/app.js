@@ -350,6 +350,7 @@ function renderHeroImage(s) {
     // Apps have no picture: a wash of the app's colour instead.
     var layer = $(heroLayer ? 'hero-bg-a' : 'hero-bg-b');
     var old = $(heroLayer ? 'hero-bg-b' : 'hero-bg-a');
+    layer.classList.add('app');
     layer.style.backgroundImage = 'radial-gradient(ellipse at 70% 40%, ' + s.color + ' 0%, ' + shade(s.color) + ' 45%, rgba(0,0,0,0) 75%)';
     layer.classList.add('on');
     old.classList.remove('on');
@@ -364,6 +365,7 @@ function renderHeroImage(s) {
   pre.onload = function () {
     if (heroSlug !== s.key) return;
     next.style.backgroundImage = 'url("' + bg + '")';
+    next.classList.remove('app');
     next.classList.add('on');
     cur.classList.remove('on');
     heroLayer = 1 - heroLayer;

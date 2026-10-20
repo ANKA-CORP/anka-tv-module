@@ -166,6 +166,7 @@ function refresh() {
     if (stay >= 0) focusRow = stay;
     rows = fresh;
     render();
+    loadWidgets();
     Splash.end();
   }).catch(function (e) {
     log('refresh failed: ' + e);
@@ -179,6 +180,43 @@ function refresh() {
       Toast.show({ text: 'Liste yenilenemedi, birazdan tekrar denenecek.', level: 'warn' });
     }
   });
+}
+
+// ---- widgets under the hero: the next boss and the favourites that are live, refreshed with the rows
+
+var nextBoss = null;
+
+function loadWidgets() {
+  api('/bosses').then(function (l) { nextBoss = l[0] || null; }).catch(function () { nextBoss = null; }).then(renderWidgets);
+}
+
+function renderWidgets() {
+  var box = $('widgets');
+  box.innerHTML = '';
+  if (nextBoss && nextBoss.at > Date.now()) {
+    var w = el('div', 'widget');
+    var faces = el('div', 'faces');
+    nextBoss.bosses.forEach(function (b) { var img = el('img'); img.src = b.image; faces.appendChild(img); });
+    w.appendChild(faces);
+    var d = new Date(nextBoss.at);
+    var mins = Math.round((nextBoss.at - Date.now()) / 60000);
+    w.appendChild(el('b', '', nextBoss.bosses.map(function (b) { return b.name; }).join(', ')));
+    w.appendChild(el('span', '', (d.getHours() < 10 ? '0' : '') + d.getHours() + ':' + (d.getMinutes() < 10 ? '0' : '') + d.getMinutes() +
+      ' · ' + (mins < 60 ? mins + ' dk' : Math.floor(mins / 60) + ' sa ' + (mins % 60) + ' dk')));
+    box.appendChild(w);
+  }
+  var fav = rows.filter(function (r) { return r.id === 'fav'; })[0];
+  var live = fav ? fav.items.filter(function (s) { return s.live; }) : [];
+  if (live.length) {
+    var lw = el('div', 'widget');
+    var lf = el('div', 'faces');
+    live.slice(0, 3).forEach(function (s) { if (s.avatar) { var img = el('img'); img.src = s.avatar; lf.appendChild(img); } });
+    lw.appendChild(lf);
+    lw.appendChild(el('span', 'live-dot'));
+    lw.appendChild(el('b', '', live.length === 1 ? live[0].name : live.length + ' favori'));
+    lw.appendChild(el('span', '', 'canlı'));
+    box.appendChild(lw);
+  }
 }
 
 // ---- rendering
@@ -350,7 +388,15 @@ function renderAppHero(a) {
   tags.innerHTML = '';
   var input = a.id === 'ps5';
   tags.appendChild(el('span', 'pill app', input ? 'HDMI girişi' : 'Uygulama'));
-  $('hero-name').textContent = a.name;
+  var name = $('hero-name');
+  name.innerHTML = '';
+  if (a.icon) {
+    var img = el('img', 'app');
+    img.src = SERVICE + a.icon;
+    img.style.boxShadow = '0 0 0 3px ' + a.color + ', 0 0 44px ' + a.color;
+    name.appendChild(img);
+  }
+  name.appendChild(document.createTextNode(a.name));
   $('hero-title').textContent = input ? 'Geçmek için OK' : 'Açmak için OK';
   $('hero-meta').textContent = 'Geri dönmek için: Home → anka tv';
 }
@@ -534,7 +580,7 @@ function poll() {
 // GitHub's raw files are at most 5 minutes old; jsDelivr's @main can be hours behind.
 var VERSION_URL = 'https://raw.githubusercontent.com/ANKA-CORP/anka-tv-module/main/version.json';
 // tools/publish.sh writes the published version here.
-var PAGE_VERSION = '0.53.0';
+var PAGE_VERSION = '0.54.0';
 
 // The number in "0.34.0": publishes only count up.
 function versionNumber(v) { return parseInt(String(v).split('.')[1], 10) || 0; }
@@ -568,6 +614,7 @@ function main() {
   log('app started: ' + navigator.userAgent + ' · tizen: ' + typeof window.tizen + ' · webapis: ' + typeof window.webapis);
   refresh();
   setInterval(refresh, REFRESH_MS);
+  setInterval(renderWidgets, 30000);
   setInterval(poll, 1500);
   setInterval(reportState, 5000);
   // Only on the TV, where TizenBrew serves the published version (on port 8081).

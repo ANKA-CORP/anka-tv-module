@@ -98,9 +98,104 @@ var Toast = (function () {
     } catch (e) { log('chime failed: ' + e); }
   }
 
-  // show("text") or show({ text, title, level: 'info' | 'warn' | 'error', sound, seconds })
+  // The boss alarm: a war horn over three drum hits, twice, loud enough to cross the room.
+  function alarm() {
+    try {
+      unlockSound();
+      if (audio.state !== 'running') log('alarm skipped: audio ' + audio.state + ' (no key pressed yet)');
+      var out = audio.createGain();
+      out.gain.value = 0.55;
+      out.connect(audio.destination);
+      var now = audio.currentTime;
+      var drum = function (t) {
+        var o = audio.createOscillator();
+        var g = audio.createGain();
+        o.type = 'sine';
+        o.frequency.setValueAtTime(150, t);
+        o.frequency.exponentialRampToValueAtTime(45, t + 0.25);
+        g.gain.setValueAtTime(1, t);
+        g.gain.exponentialRampToValueAtTime(0.001, t + 0.35);
+        o.connect(g);
+        g.connect(out);
+        o.start(t);
+        o.stop(t + 0.4);
+      };
+      var horn = function (t, len) {
+        var f = audio.createBiquadFilter();
+        var g = audio.createGain();
+        f.type = 'lowpass';
+        f.frequency.setValueAtTime(400, t);
+        f.frequency.linearRampToValueAtTime(2200, t + 0.25);
+        g.gain.setValueAtTime(0.0001, t);
+        g.gain.exponentialRampToValueAtTime(0.32, t + 0.12);
+        g.gain.setValueAtTime(0.32, t + len - 0.2);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + len);
+        f.connect(g);
+        g.connect(out);
+        [110, 165, 220.5].forEach(function (freq) {
+          var o = audio.createOscillator();
+          o.type = 'sawtooth';
+          o.frequency.setValueAtTime(freq * 0.94, t);
+          o.frequency.linearRampToValueAtTime(freq, t + 0.15);
+          o.connect(f);
+          o.start(t);
+          o.stop(t + len);
+        });
+      };
+      [0, 2.4].forEach(function (at) {
+        horn(now + at, 1.3);
+        drum(now + at + 1.4);
+        drum(now + at + 1.7);
+        drum(now + at + 2.0);
+      });
+    } catch (e) { log('alarm failed: ' + e); }
+  }
+
+  function two(n) { return (n < 10 ? '0' : '') + n; }
+
+  // A boss is close: a card drops in at the top with the bosses' portraits, the spawn time and a live countdown.
+  function boss(n) {
+    if (n.at <= Date.now()) return;
+    var card = document.getElementById('boss');
+    var list = document.getElementById('boss-list');
+    var spawn = new Date(n.at);
+    list.innerHTML = '';
+    n.bosses.forEach(function (b, i) {
+      var item = el('div', 'boss-item');
+      item.style.setProperty('--i', i);
+      var img = el('img');
+      img.src = b.image;
+      img.onerror = function () { img.style.visibility = 'hidden'; };
+      item.appendChild(img);
+      item.appendChild(el('span', '', b.name));
+      list.appendChild(item);
+    });
+    document.getElementById('boss-time').textContent = two(spawn.getHours()) + ':' + two(spawn.getMinutes());
+    document.getElementById('boss-test').style.display = n.test ? '' : 'none';
+    var left = document.getElementById('boss-left');
+    var tick = function () {
+      var s = Math.max(0, Math.round((n.at - Date.now()) / 1000));
+      var h = Math.floor(s / 3600);
+      left.textContent = (h ? h + ':' + two(Math.floor(s / 60) % 60) : Math.floor(s / 60)) + ':' + two(s % 60);
+    };
+    tick();
+    clearInterval(boss.timer);
+    clearTimeout(boss.hide);
+    boss.timer = setInterval(tick, 1000);
+    card.classList.remove('on');
+    void card.offsetWidth;   // restart the entrance animation
+    card.classList.add('on');
+    if (n.sound !== false) alarm();
+    boss.hide = setTimeout(function () {
+      card.classList.remove('on');
+      clearInterval(boss.timer);
+    }, (n.seconds || 30) * 1000);
+  }
+
+  // show("text") or show({ text, title, level: 'info' | 'warn' | 'error', sound, seconds }); kind 'boss' gets the boss card.
   function show(n) {
     if (typeof n === 'string') n = { text: n };
+    if (n.kind === 'boss') return boss(n);
     box = box || document.getElementById('toasts');
     var t = el('div', 'toast' + (n.level && n.level !== 'info' ? ' ' + n.level : ''));
     if (n.title) t.appendChild(el('small', '', n.title));

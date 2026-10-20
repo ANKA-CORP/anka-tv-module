@@ -1,6 +1,6 @@
 {
   "name": "anka-tv",
-  "version": "0.30.0",
+  "version": "0.31.0",
   "description": "Our Kick client and home screen for the Samsung TV at home.",
   "packageType": "app",
   "appName": "anka-tv",

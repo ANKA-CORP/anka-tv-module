@@ -212,6 +212,19 @@
   </section>
 
   <section>
+    <h2>Boss uyarıları</h2>
+    <div class="motion" role="group" aria-labelledby="boss-label">
+      <span id="boss-label">20 dk kala TV'de alarm</span>
+      <button type="button" data-boss="on">Açık</button><button type="button" data-boss="off">Kapalı</button>
+    </div>
+    <div class="row" style="margin-top: 12px">
+      <span id="boss-next" class="hint" style="flex: 1; margin: 0">Sıradaki boss yükleniyor…</span>
+      <button type="button" id="boss-try">TV'de dene</button>
+    </div>
+    <div class="hint">Black Desert EU saatleri, MMOTIMER'dan.</div>
+  </section>
+
+  <section>
     <h2>Bildirim gönder</h2>
     <form id="notify-form">
       <textarea id="notify-text" placeholder="TV'de görünecek mesaj"></textarea>
@@ -486,10 +499,44 @@
     });
   });
 
+  // ---- boss alerts
+
+  function renderBoss() {
+    Array.prototype.forEach.call(document.querySelectorAll('[data-boss]'), function (b) {
+      b.classList.toggle('on', b.dataset.boss === (settings.bossAlerts === false ? 'off' : 'on'));
+    });
+  }
+  Array.prototype.forEach.call(document.querySelectorAll('[data-boss]'), function (b) {
+    b.addEventListener('click', function () {
+      settings.bossAlerts = b.dataset.boss === 'on';
+      renderBoss();
+      post('/settings', { bossAlerts: settings.bossAlerts })
+        .then(function () { toast(settings.bossAlerts ? 'Boss uyarıları açık' : 'Boss uyarıları kapalı'); })
+        .catch(function (e) { toast('Kaydedilemedi: ' + e.message, true); });
+    });
+  });
+  $('boss-try').addEventListener('click', function () {
+    post('/boss-test', '').then(function () { toast('Sıradaki boss uyarısı TV\'ye gönderildi'); })
+      .catch(function (e) { toast('Gönderilemedi: ' + e.message, true); });
+  });
+  function loadBosses() {
+    getJson('/bosses').then(function (list) {
+      var s = list[0];
+      if (!s) { $('boss-next').textContent = 'Yakında boss yok.'; return; }
+      var d = new Date(s.at);
+      var hm = (d.getHours() < 10 ? '0' : '') + d.getHours() + ':' + (d.getMinutes() < 10 ? '0' : '') + d.getMinutes();
+      var day = d.toDateString() === new Date().toDateString() ? 'Bugün' : d.toLocaleDateString('tr-TR', { weekday: 'long' });
+      $('boss-next').textContent = 'Sıradaki: ' + s.bosses.map(function (b) { return b.name; }).join(', ') + ' · ' + day + ' ' + hm;
+    }).catch(function () { $('boss-next').textContent = 'Boss saatleri alınamadı.'; });
+  }
+  loadBosses();
+  setInterval(loadBosses, 60000);
+
   getJson('/settings').then(function (s) {
     settings = s || {};
     renderThemes();
     renderMotion();
+    renderBoss();
     var t = THEMES.filter(function (x) { return x.id === (settings.theme || 'sunset'); })[0];
     if (t) window.dispatchEvent(new CustomEvent('anka:theme', { detail: t.accent }));
   }).catch(function () { renderThemes(); });

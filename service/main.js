@@ -15,6 +15,7 @@
 //   POST /state, GET /state             what the page shows now (grid or player, channel, quality, version)
 //   GET /                               the web dashboard, for a phone or the Mac: http://<tv ip>:8090/
 //   POST /reload-service                load the newest published version of this file (after tools/publish.sh)
+//   GET /bosses, POST /boss-test        upcoming Black Desert (EU) boss spawns; send the next one's alert now
 var fs = require('fs');
 var http = require('http');
 var https = require('https');
@@ -25,7 +26,7 @@ var url = require('url');
 // Not 8085: the spike module's service may still hold it until TizenBrew restarts.
 var PORT = 8090;
 // tools/publish.sh writes the published version here.
-var SERVICE_VERSION = '0.30.0 (826b2ec)';
+var SERVICE_VERSION = '0.31.0 (ee943ab)';
 var UA = 'Mozilla/5.0 (SMART-TV; Linux; Tizen 6.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/76.0.3809.146 TV Safari/537.36';
 var CACHE_MS = 20000;
 // TizenBrew keeps its own config in /home/owner/share; tools/dev.sh points these elsewhere on the Mac.
@@ -263,6 +264,82 @@ function queue(req, res, list, parse) {
   replyJson(res, list.splice(0, list.length));
 }
 
+// ---- Black Desert boss alerts (EU). The schedule comes from MMOTIMER's page: Garmoth answers scripts with a
+// Cloudflare challenge. Its "spawns in" column avoids guessing which time zone the page's clock column is in.
+var BOSS_URL = 'https://mmotimer.com/bdo/?server=eu';
+var BOSS_ALERT_MS = 20 * 60000;
+var bossCache = null;
+var bossAlerted = shared.bossAlerted || (shared.bossAlerted = {});
+
+function bossImage(name) {
+  var file = name === 'Golden Pig King' ? 'pig' : name.toLowerCase().replace(/[^a-z]+/g, '_');
+  return 'https://mmotimer.com/img/' + file + '_big.png';
+}
+
+// Table rows look like: "Kzarka, Kutum" | "00:15 Wednesday" | "02:37:35".
+function parseBosses(html, now) {
+  var at = html.indexOf('id="mainTbl"');
+  if (at < 0) return [];
+  var rows = html.slice(at, html.indexOf('</table>', at)).match(/<tr[\s\S]*?<\/tr>/g) || [];
+  var spawns = [];
+  rows.forEach(function (r) {
+    var cells = (r.match(/<td[^>]*>[\s\S]*?<\/td>/g) || []).map(function (c) {
+      return c.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    });
+    var left = cells.length >= 3 && /^(\d+):(\d\d):(\d\d)$/.exec(cells[2]);
+    if (!left) return;
+    var ms = ((+left[1]) * 3600 + (+left[2]) * 60 + (+left[3])) * 1000;
+    spawns.push({
+      // Spawns are on the minute; rounding drops the seconds the page took to arrive.
+      at: Math.round((now + ms) / 60000) * 60000,
+      bosses: cells[0].split(',').map(function (n) { return n.trim(); }).filter(function (n) { return n; })
+        .map(function (n) { return { name: n, image: bossImage(n) }; })
+    });
+  });
+  return spawns;
+}
+
+function bosses(cb) {
+  if (bossCache && Date.now() - bossCache.fetched < 30 * 60000 && bossCache.spawns.length) {
+    return cb(null, bossCache.spawns.filter(function (s) { return s.at > Date.now(); }));
+  }
+  get(BOSS_URL, function (err, html, status) {
+    if (err || status !== 200) return cb(err || new Error('HTTP ' + status + ' from ' + BOSS_URL));
+    var spawns = parseBosses(html, Date.now());
+    if (!spawns.length) return cb(new Error('no boss rows in ' + BOSS_URL));
+    bossCache = { fetched: Date.now(), spawns: spawns };
+    cb(null, spawns.filter(function (s) { return s.at > Date.now(); }));
+  });
+}
+
+function bossNotice(spawn, test) {
+  return {
+    kind: 'boss',
+    at: spawn.at,
+    bosses: spawn.bosses,
+    text: spawn.bosses.map(function (b) { return b.name; }).join(', '),
+    sound: true,
+    test: !!test
+  };
+}
+
+// Every half minute: queue an alert for each spawn that is now 20 minutes or less away, once.
+function checkBosses() {
+  var settings = readData().settings || {};
+  if (settings.bossAlerts === false) return;
+  bosses(function (err, spawns) {
+    if (err) return log('service: bosses ' + err);
+    spawns.forEach(function (s) {
+      var key = String(s.at);
+      if (s.at - Date.now() > BOSS_ALERT_MS || bossAlerted[key]) return;
+      bossAlerted[key] = true;
+      notifications.push(bossNotice(s));
+      log('boss alert: ' + bossNotice(s).text + ' at ' + new Date(s.at).toISOString().slice(11, 16) + ' UTC');
+    });
+  });
+}
+var bossTimer = setInterval(checkBosses, 30000);
+
 function handle(req, res) {
   var u = url.parse(req.url, true);
   if (req.method === 'OPTIONS') {
@@ -273,6 +350,19 @@ function handle(req, res) {
     log('service: reloading');
     reply(res, 202, 'text/plain', 'reloading');
     return setTimeout(reloadService, 100);
+  }
+  if (u.pathname === '/bosses') {
+    return bosses(function (err, spawns) {
+      if (err) return fail(res, 'bosses', err);
+      replyJson(res, spawns.slice(0, 12));
+    });
+  }
+  if (u.pathname === '/boss-test' && req.method === 'POST') {
+    return bosses(function (err, spawns) {
+      if (err || !spawns.length) return fail(res, 'boss test', err || 'no spawns');
+      notifications.push(bossNotice(spawns[0], true));
+      replyJson(res, bossNotice(spawns[0], true));
+    });
   }
   if (u.pathname === '/log') {
     if (req.method === 'POST') return readBody(req, function (b) { log(b); reply(res, 204, 'text/plain', ''); });
@@ -422,6 +512,7 @@ var server = http.createServer(function (req, res) {
 
 // Called by service.js before it loads a newer version: free the port, drop the page's keep-alive connections.
 exports.stop = function (done) {
+  clearInterval(bossTimer);
   server.close(function () { done(); });
   sockets.slice().forEach(function (s) { s.destroy(); });
 };

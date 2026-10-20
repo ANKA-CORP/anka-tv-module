@@ -513,7 +513,8 @@ function poll() {
 
 // ---- updates: reload when a newer version is published and nobody is watching
 
-var VERSION_URL = 'https://cdn.jsdelivr.net/gh/ANKA-CORP/anka-tv-module@main/version.json';
+// GitHub's raw files are at most 5 minutes old; jsDelivr's @main can be hours behind.
+var VERSION_URL = 'https://raw.githubusercontent.com/ANKA-CORP/anka-tv-module/main/version.json';
 var loadedVersion = null;
 
 function checkVersion() {

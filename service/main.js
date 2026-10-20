@@ -18,18 +18,20 @@
 var fs = require('fs');
 var http = require('http');
 var https = require('https');
+var net = require('net');
 var os = require('os');
 var url = require('url');
 
 // Not 8085: the spike module's service may still hold it until TizenBrew restarts.
 var PORT = 8090;
 // tools/publish.sh writes the published version here.
-var SERVICE_VERSION = '0.29.0 (7025bf2)';
+var SERVICE_VERSION = '0.30.0 (826b2ec)';
 var UA = 'Mozilla/5.0 (SMART-TV; Linux; Tizen 6.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/76.0.3809.146 TV Safari/537.36';
 var CACHE_MS = 20000;
 // TizenBrew keeps its own config in /home/owner/share; tools/dev.sh points these elsewhere on the Mac.
 var DATA_FILE = (process.env.ANKA_DATA_DIR || '/home/owner/share') + '/anka-tv.json';
-var DASHBOARD_URL = 'https://cdn.jsdelivr.net/gh/ANKA-CORP/anka-tv-module@main/dashboard/index.html';
+// From the same commit as this file (service.js sets shared.base).
+var DASHBOARD_URL = (shared.base || 'https://cdn.jsdelivr.net/gh/ANKA-CORP/anka-tv-module@main/') + 'dashboard/index.html';
 var cache = {};
 var logLines = shared.logLines;
 var commands = [];
@@ -56,7 +58,7 @@ var APP_CATALOGUE = [
 ];
 // The TV's own app API; on the Mac (tools/dev.sh) it's unset and launching only logs.
 // Called on the TV's network address: from 127.0.0.1 the TV answers launches with 401 (tried 2026-10-20).
-var TV_API = process.env.ANKA_DEV_DIR ? null : ':8001/api/v2/applications/';
+var TV_API = process.env.ANKA_DEV_DIR ? null : '/api/v2/applications/';
 
 function lanAddress() {
   var nets = os.networkInterfaces();
@@ -69,17 +71,30 @@ function lanAddress() {
   return '127.0.0.1';
 }
 
+// Spoken over a plain socket: the TV's HTTP answers trip Node 12.4's strict parser ("Parse Error").
 function tvApi(method, id, cb) {
+  var host = lanAddress();
   var done = false;
-  var once = function (err, status, body) { if (!done) { done = true; cb(err, status, body); } };
-  // Looked up each time: right after the TV boots the network may not be up yet.
-  var req = http.request('http://' + lanAddress() + TV_API + id, { method: method }, function (res) {
-    var body = '';
-    res.on('data', function (c) { body += c; });
-    res.on('end', function () { once(null, res.statusCode, body); });
+  var data = '';
+  var sock = net.connect(8001, host, function () {
+    sock.write(method + ' ' + TV_API + id + ' HTTP/1.0\r\nHost: ' + host + ':8001\r\nContent-Length: 0\r\n\r\n');
   });
-  req.on('error', function (e) { once(e); });
-  req.end();
+  var once = function (err, status, body) {
+    if (done) return;
+    done = true;
+    sock.destroy();
+    cb(err, status, body);
+  };
+  sock.setEncoding('utf8');
+  sock.setTimeout(8000, function () { once(new Error('timeout')); });
+  sock.on('data', function (c) { data += c; });
+  sock.on('end', function () {
+    var m = /^HTTP\/1\.[01] (\d{3})/.exec(data);
+    var at = data.indexOf('\r\n\r\n');
+    if (!m) return once(new Error('unexpected answer: ' + data.slice(0, 80)));
+    once(null, Number(m[1]), at >= 0 ? data.slice(at + 4) : '');
+  });
+  sock.on('error', function (e) { once(e); });
 }
 
 function installedApps(cb) {

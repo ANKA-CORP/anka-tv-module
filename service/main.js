@@ -27,7 +27,7 @@ var url = require('url');
 // Not 8085: the spike module's service may still hold it until TizenBrew restarts.
 var PORT = 8090;
 // tools/publish.sh writes the published version here.
-var SERVICE_VERSION = '0.34.0 (0b9a0da)';
+var SERVICE_VERSION = '0.35.0 (f346c48)';
 var UA = 'Mozilla/5.0 (SMART-TV; Linux; Tizen 6.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/76.0.3809.146 TV Safari/537.36';
 var CACHE_MS = 20000;
 // TizenBrew keeps its own config in /home/owner/share; tools/dev.sh points these elsewhere on the Mac.
@@ -50,7 +50,8 @@ function writeData(data) {
 
 // Well-known Samsung app IDs; /apps keeps those installed on this TV. Colours are for our own tiles.
 var APP_CATALOGUE = [
-  { id: '111299001912', tizen: '9Ur5IzDKqV.TizenYouTube', name: 'YouTube', color: '#ff0033' },
+  // YouTube's icon on the TV is Tizen's generic placeholder, so its tile stays text.
+  { id: '111299001912', tizen: '9Ur5IzDKqV.TizenYouTube', name: 'YouTube', color: '#ff0033', noIcon: true },
   { id: '3201907018807', tizen: 'org.tizen.netflix-app', name: 'Netflix', color: '#e50914' },
   { id: '3201910019365', tizen: 'org.tizen.primevideo', name: 'Prime Video', color: '#1a98ff' },
   { id: '3201901017640', tizen: 'MCmYXNxgcu.DisneyPlus', name: 'Disney+', color: '#113ccf' },
@@ -107,7 +108,7 @@ function installedApps(cb) {
       var t = tizenAppFor(app, list);
       if (!t) return null;
       var a = { id: app.id, name: app.name, color: app.color };
-      if (t.iconPath) a.icon = '/app-icon?id=' + app.id;
+      if (t.iconPath && !app.noIcon && fs.existsSync(t.iconPath)) a.icon = '/app-icon?id=' + app.id;
       return a;
     }).filter(function (a) { return a; }));
   });

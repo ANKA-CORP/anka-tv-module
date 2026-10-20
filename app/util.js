@@ -1,9 +1,9 @@
 // Shared helpers: the service, logging, formatting, keys and toasts.
-// Classic script (no modules), ES2017 at most: the TV runs Chromium 76.
+// Classic script (no modules). TizenBrew's web view on our TV is Chromium 120 (logged on 2026-10-20).
 'use strict';
 
 // The module's service (service/service.js) runs on the TV itself; on the Mac, tools/dev.sh starts it.
-var SERVICE = 'http://127.0.0.1:8085';
+var SERVICE = 'http://127.0.0.1:8090';
 
 function log(msg) {
   try { console.log(msg); } catch (e) {}

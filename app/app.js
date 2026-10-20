@@ -331,7 +331,12 @@ var loadedVersion = null;
 function checkVersion() {
   fetch(VERSION_URL + '?t=' + Date.now()).then(function (r) { return r.ok ? r.json() : null; }).then(function (v) {
     if (!v) return;
-    if (!loadedVersion) { loadedVersion = v.commit; log('version ' + v.commit); return; }
+    if (!loadedVersion) {
+      loadedVersion = v.commit;
+      $('version').textContent = 'v' + v.version;
+      log('version ' + v.version + ' (' + v.commit + ')');
+      return;
+    }
     if (v.commit !== loadedVersion && !Player.isOpen()) {
       log('new version ' + v.commit + ', reloading');
       location.reload();
@@ -356,6 +361,8 @@ function main() {
   if (location.port === '8081') {
     checkVersion();
     setInterval(checkVersion, 3 * 60000);
+  } else {
+    $('version').textContent = 'dev';
   }
 }
 

@@ -6,7 +6,7 @@
 <!--
   CSS stays inline: TizenBrew's proxy (127.0.0.1:8081) doesn't pass content types, and browsers refuse
   stylesheets without text/css. Classic scripts don't care, so the JavaScript lives in separate files.
-  The TV runs Chromium 76: no flex gap, inset, aspect-ratio or optional chaining.
+  TizenBrew's web view on our TV is Chromium 120, so modern CSS works; the TV's own browser is older.
 -->
 <style>
   :root {
@@ -25,6 +25,7 @@
   #topbar { position: absolute; left: 96px; right: 96px; top: 44px; height: 48px; display: flex; align-items: center; justify-content: space-between; z-index: 5; }
   #brand { font-size: 30px; font-weight: 800; letter-spacing: .5px; }
   #brand span { color: var(--accent); }
+  #version { font-style: normal; font-size: 18px; font-weight: 500; color: var(--muted); margin-left: 14px; }
   #clock { font-size: 34px; font-weight: 600; color: var(--text); }
 
   /* Hero: the focused stream */
@@ -123,7 +124,7 @@
       <div id="hero-meta"></div>
     </div>
   </div>
-  <div id="topbar"><div id="brand">anka<span>tv</span></div><div id="clock"></div></div>
+  <div id="topbar"><div id="brand">anka<span>tv</span><em id="version"></em></div><div id="clock"></div></div>
   <div id="rows"><div id="rows-inner"></div></div>
   <div id="empty"></div>
 

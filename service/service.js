@@ -4,14 +4,15 @@
 //   GET /streams?language=tr&limit=24   live streams, most watched first (language optional)
 //   GET /channels?slugs=a,b             channel info and live status, in the given order
 //   GET /master.m3u8?slug=X             the channel's master playlist, with CORS open
-//   POST /log, GET /log                 page log lines (readable from the Mac: http://<tv ip>:8085/log)
+//   POST /log, GET /log                 page log lines (readable from the Mac: http://<tv ip>:8090/log)
 //   POST /cmd, GET /cmd                 a command for the page, e.g. "play zeitnot" (the Mac can drive the app)
 //   POST /notify, GET /notify           a toast for the page: JSON {"text": "...", "sound": true}
 var http = require('http');
 var https = require('https');
 var url = require('url');
 
-var PORT = 8085;
+// Not 8085: the spike module's service may still hold it until TizenBrew restarts.
+var PORT = 8090;
 var UA = 'Mozilla/5.0 (SMART-TV; Linux; Tizen 6.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/76.0.3809.146 TV Safari/537.36';
 var CACHE_MS = 20000;
 var cache = {};
@@ -186,6 +187,9 @@ http.createServer(function (req, res) {
     });
   }
   reply(res, 404, 'text/plain', 'not found');
+}).on('error', function (e) {
+  // Without a handler a busy port would take down TizenBrew's whole service process with it.
+  log('service: ' + e);
 }).listen(PORT, '0.0.0.0');
 
 log('service started on port ' + PORT + ', node ' + process.version);

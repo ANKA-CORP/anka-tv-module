@@ -16,6 +16,7 @@
 var fs = require('fs');
 var http = require('http');
 var https = require('https');
+var os = require('os');
 var url = require('url');
 
 // Not 8085: the spike module's service may still hold it until TizenBrew restarts.
@@ -50,15 +51,30 @@ var APP_CATALOGUE = [
   { id: '3202010022079', name: 'İnternet', color: '#5b5bd6' }
 ];
 // The TV's own app API; on the Mac (tools/dev.sh) it's unset and launching only logs.
-var TV_API = process.env.ANKA_DEV_DIR ? null : 'http://127.0.0.1:8001/api/v2/applications/';
+// Called on the TV's network address: from 127.0.0.1 the TV answers launches with 401 (tried 2026-10-20).
+var TV_API = process.env.ANKA_DEV_DIR ? null : ':8001/api/v2/applications/';
+
+function lanAddress() {
+  var nets = os.networkInterfaces();
+  for (var name in nets) {
+    for (var i = 0; i < nets[name].length; i++) {
+      var n = nets[name][i];
+      if (n.family === 'IPv4' && !n.internal) return n.address;
+    }
+  }
+  return '127.0.0.1';
+}
 
 function tvApi(method, id, cb) {
-  var req = http.request(TV_API + id, { method: method }, function (res) {
+  var done = false;
+  var once = function (err, status, body) { if (!done) { done = true; cb(err, status, body); } };
+  // Looked up each time: right after the TV boots the network may not be up yet.
+  var req = http.request('http://' + lanAddress() + TV_API + id, { method: method }, function (res) {
     var body = '';
     res.on('data', function (c) { body += c; });
-    res.on('end', function () { cb(null, res.statusCode, body); });
+    res.on('end', function () { once(null, res.statusCode, body); });
   });
-  req.on('error', function (e) { cb(e); });
+  req.on('error', function (e) { once(e); });
   req.end();
 }
 
@@ -368,4 +384,7 @@ http.createServer(function (req, res) {
   log('service: ' + e);
 }).listen(PORT, '0.0.0.0');
 
-log('service started on port ' + PORT + ', node ' + process.version);
+// TizenBrew keeps the service running across app launches, so the log says which version is serving.
+var serviceVersion = '?';
+try { serviceVersion = require('../package.json').version; } catch (e) {}
+log('service ' + serviceVersion + ' started on port ' + PORT + ', node ' + process.version);

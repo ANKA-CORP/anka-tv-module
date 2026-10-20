@@ -636,7 +636,7 @@
   });
 
   function sendNotice(text) {
-    return post('/notify', { text: text, sound: $('notify-sound').checked })
+    return post('/notify', { kind: 'message', title: 'Mesaj', text: text, sound: $('notify-sound').checked })
       .then(function () { toast('TV\'ye gönderildi'); })
       .catch(function (e) { toast('Gönderilemedi: ' + e.message, true); });
   }

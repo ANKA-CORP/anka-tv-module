@@ -124,7 +124,7 @@ function loadRowsFor() {
     api('/streams?language=tr&limit=30'),
     api('/streams?limit=30')
   ]).then(function (r) {
-    var apps = r[0].map(function (a) { return { kind: 'app', key: a.id, id: a.id, name: a.name, color: a.color }; });
+    var apps = r[0].map(function (a) { return { kind: 'app', key: a.id, id: a.id, name: a.name, color: a.color, icon: a.icon }; });
     var stream = function (s) { s.kind = 'stream'; s.key = s.slug; return s; };
     var favItems = r[1].map(stream).sort(function (a, b) { return (b.live - a.live) || (b.viewers - a.viewers); });
     var list = [];
@@ -424,7 +424,10 @@ function launchApp(a) {
   fetch(SERVICE + '/launch?id=' + encodeURIComponent(a.id), { method: 'POST' })
     .then(function (r) { return r.ok ? r.json() : r.text().then(function (t) { throw new Error(t); }); })
     .then(function (r) { if (r.dev) Toast.show({ text: a.name + ' TV\'de açılırdı (Mac\'te çalışıyor).' }); })
-    .catch(function (e) { Toast.show({ text: a.name + ' açılamadı.', level: 'error', sound: true }); log('launch failed: ' + e); });
+    .catch(function (e) {
+      Toast.show({ kind: 'app', text: a.name + ' açılamadı.', level: 'error', sound: true, avatar: a.icon ? SERVICE + a.icon : undefined });
+      log('launch failed: ' + e);
+    });
 }
 
 function toggleFavourite() {
@@ -530,7 +533,7 @@ function poll() {
 // GitHub's raw files are at most 5 minutes old; jsDelivr's @main can be hours behind.
 var VERSION_URL = 'https://raw.githubusercontent.com/ANKA-CORP/anka-tv-module/main/version.json';
 // tools/publish.sh writes the published version here.
-var PAGE_VERSION = '0.42.0';
+var PAGE_VERSION = '0.43.0';
 
 // The number in "0.34.0": publishes only count up.
 function versionNumber(v) { return parseInt(String(v).split('.')[1], 10) || 0; }

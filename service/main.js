@@ -29,7 +29,7 @@ var url = require('url');
 // Not 8085: the spike module's service may still hold it until TizenBrew restarts.
 var PORT = Number(process.env.ANKA_PORT) || 8090;   // another port only in tools/test.sh
 // tools/publish.sh writes the published version here.
-var SERVICE_VERSION = '0.42.0 (e2cc49a)';
+var SERVICE_VERSION = '0.43.0 (1293868)';
 var UA = 'Mozilla/5.0 (SMART-TV; Linux; Tizen 6.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/76.0.3809.146 TV Safari/537.36';
 var CACHE_MS = 20000;
 // TizenBrew keeps its own config in /home/owner/share; tools/dev.sh points these elsewhere on the Mac.
@@ -52,10 +52,10 @@ function writeData(data) {
 
 // Well-known Samsung app IDs; /apps keeps those installed on this TV. Colours are for our own tiles.
 var APP_CATALOGUE = [
-  // YouTube's icon on the TV is Tizen's generic placeholder, so its tile stays text.
-  { id: '111299001912', tizen: '9Ur5IzDKqV.TizenYouTube', name: 'YouTube', color: '#ff0033', noIcon: true },
+  // YouTube's icon on the TV is Tizen's generic placeholder and Prime Video's file is missing: their sites' icons instead.
+  { id: '111299001912', tizen: '9Ur5IzDKqV.TizenYouTube', name: 'YouTube', color: '#ff0033', noIcon: true, web: 'www.youtube.com' },
   { id: '3201907018807', tizen: 'org.tizen.netflix-app', name: 'Netflix', color: '#e50914' },
-  { id: '3201910019365', tizen: 'org.tizen.primevideo', name: 'Prime Video', color: '#1a98ff' },
+  { id: '3201910019365', tizen: 'org.tizen.primevideo', name: 'Prime Video', color: '#1a98ff', web: 'www.primevideo.com' },
   { id: '3201901017640', tizen: 'MCmYXNxgcu.DisneyPlus', name: 'Disney+', color: '#113ccf' },
   { id: '3201807016597', tizen: 'com.samsung.tv.aria-video', name: 'Apple TV', color: '#3a3a3c' },
   { id: '3201606009684', tizen: 'rJeHak5zRg.Spotify', name: 'Spotify', color: '#1db954' },
@@ -103,14 +103,17 @@ function tvApi(method, id, cb) {
 }
 
 function installedApps(cb) {
-  if (!TV_API) return cb(APP_CATALOGUE);
+  // On the Mac: the whole catalogue, with the web icons.
+  if (!TV_API) return cb(APP_CATALOGUE.map(function (app) {
+    return app.web ? { id: app.id, name: app.name, color: app.color, icon: '/app-icon?id=' + app.id } : app;
+  }));
   tizenApps(function (err, list) {
     if (err) return installedFromRest(cb);
     cb(APP_CATALOGUE.map(function (app) {
       var t = tizenAppFor(app, list);
       if (!t) return null;
       var a = { id: app.id, name: app.name, color: app.color };
-      if (t.iconPath && !app.noIcon && fs.existsSync(t.iconPath)) a.icon = '/app-icon?id=' + app.id;
+      if ((t.iconPath && !app.noIcon && fs.existsSync(t.iconPath)) || app.web) a.icon = '/app-icon?id=' + app.id;
       return a;
     }).filter(function (a) { return a; }));
   });
@@ -145,6 +148,21 @@ function tizenApps(cb) {
       cb(null, data);
     }, function (e) { cb(new Error(e.name + ': ' + e.message)); });
   } catch (e) { cb(e); }
+}
+
+// An app's icon from its website (Google's favicon service), fetched at runtime and kept in memory.
+function webIcon(domain, cb) {
+  var key = 'icon:' + domain;
+  if (cache[key]) return cb(null, cache[key]);
+  https.get('https://t1.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https://' + domain + '&size=256', function (res) {
+    var chunks = [];
+    res.on('data', function (c) { chunks.push(c); });
+    res.on('end', function () {
+      if (res.statusCode !== 200) return cb(new Error('HTTP ' + res.statusCode + ' for the ' + domain + ' icon'));
+      cache[key] = Buffer.concat(chunks);
+      cb(null, cache[key]);
+    });
+  }).on('error', cb);
 }
 
 function plain(s) { return String(s || '').toLowerCase().replace(/[^a-z0-9]/g, ''); }
@@ -644,12 +662,15 @@ function handle(req, res) {
     var iconApp = APP_CATALOGUE.filter(function (a) { return a.id === u.query.id; })[0];
     return tizenApps(function (err, list) {
       var t = !err && iconApp && tizenAppFor(iconApp, list);
-      if (!t || !t.iconPath) return reply(res, 404, 'text/plain', 'no icon');
-      fs.readFile(t.iconPath.replace(/^file:\/\//, ''), function (err2, png) {
+      var send = function (err2, png) {
         if (err2) return fail(res, 'icon ' + iconApp.name, err2);
         res.writeHead(200, { 'Content-Type': 'image/png', 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'max-age=86400' });
         res.end(png);
-      });
+      };
+      var file = t && t.iconPath && !iconApp.noIcon && t.iconPath.replace(/^file:\/\//, '');
+      if (file && fs.existsSync(file)) return fs.readFile(file, send);
+      if (iconApp && iconApp.web) return webIcon(iconApp.web, send);
+      reply(res, 404, 'text/plain', 'no icon');
     });
   }
   if (u.pathname === '/tizen-apps') {

@@ -76,26 +76,36 @@ var Toast = (function () {
     } catch (e) { log('audio unavailable: ' + e); }
   }
 
-  // A soft two-note chime, generated so the module needs no sound files.
-  function chime() {
+  // One short, friendly sound per kind of notice, generated so the module needs no sound files.
+  // Each note: [frequency Hz, start s, length s, wave, end frequency (a glide) or 0].
+  var SOUNDS = {
+    info: [[660, 0, 0.5, 'sine', 0], [880, 0.16, 0.6, 'sine', 0]],
+    message: [[520, 0, 0.12, 'sine', 780], [700, 0.14, 0.16, 'sine', 1040]],
+    live: [[523, 0, 0.25, 'triangle', 0], [659, 0.09, 0.25, 'triangle', 0], [784, 0.18, 0.25, 'triangle', 0], [1047, 0.27, 0.55, 'triangle', 0]],
+    warn: [[740, 0, 0.22, 'triangle', 0], [554, 0.2, 0.35, 'triangle', 0]],
+    error: [[262, 0, 0.18, 'triangle', 220], [262, 0.24, 0.3, 'triangle', 196]]
+  };
+
+  function chime(kind) {
     try {
       unlockSound();
-      if (audio.state !== 'running') log('chime skipped: audio ' + audio.state + ' (no key pressed yet)');
-      [660, 880].forEach(function (freq, i) {
+      if (audio.state !== 'running') log('sound skipped: audio ' + audio.state + ' (no key pressed yet)');
+      (SOUNDS[kind] || SOUNDS.info).forEach(function (n) {
         var o = audio.createOscillator();
         var g = audio.createGain();
-        var t = audio.currentTime + i * 0.16;
-        o.type = 'sine';
-        o.frequency.value = freq;
+        var t = audio.currentTime + n[1];
+        o.type = n[3];
+        o.frequency.setValueAtTime(n[0], t);
+        if (n[4]) o.frequency.exponentialRampToValueAtTime(n[4], t + n[2] * 0.8);
         g.gain.setValueAtTime(0.0001, t);
-        g.gain.exponentialRampToValueAtTime(0.25, t + 0.02);
-        g.gain.exponentialRampToValueAtTime(0.0001, t + 0.5);
+        g.gain.exponentialRampToValueAtTime(0.25, t + 0.015);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + n[2]);
         o.connect(g);
         g.connect(audio.destination);
         o.start(t);
-        o.stop(t + 0.55);
+        o.stop(t + n[2] + 0.05);
       });
-    } catch (e) { log('chime failed: ' + e); }
+    } catch (e) { log('sound failed: ' + e); }
   }
 
   // The boss alarm: a war horn over three drum hits, twice, loud enough to cross the room.
@@ -203,7 +213,7 @@ var Toast = (function () {
     if (typeof n === 'string') n = { text: n };
     if (n.kind === 'boss') return boss(n);
     box = box || document.getElementById('toasts');
-    var t = el('div', 'toast' + (n.level && n.level !== 'info' ? ' ' + n.level : '') + (n.kind === 'live' ? ' live' : ''));
+    var t = el('div', 'toast' + (n.level && n.level !== 'info' ? ' ' + n.level : '') + (/^(live|app|message)$/.test(n.kind) ? ' ' + n.kind : ''));
     // A channel's picture in place of the mark (a favourite going live).
     if (n.avatar) {
       var face = el('img', 'toast-avatar');
@@ -215,7 +225,7 @@ var Toast = (function () {
     t.appendChild(document.createTextNode(n.text));
     box.appendChild(t);
     while (box.children.length > 3) box.removeChild(box.firstChild);
-    if (n.sound) chime();
+    if (n.sound) chime(n.kind === 'live' || n.kind === 'message' ? n.kind : n.level);
     requestAnimationFrame(function () { requestAnimationFrame(function () { t.classList.add('in'); }); });
     setTimeout(function () {
       t.classList.add('out');

@@ -15,8 +15,10 @@
 //   GET /weather, POST /city            current weather for the saved city; POST a city name to set it
 //   POST /state, GET /state             what the page shows now (grid or player, channel, quality, version)
 //   GET /                               the web dashboard, for a phone or the Mac: http://<tv ip>:8090/
+//   GET /auth/status, POST /auth/login, POST /auth/logout, POST /auth/set   the dashboard's password (see below)
 //   POST /reload-service                load the newest published version of this file (after tools/publish.sh)
 //   GET /bosses, POST /boss-test        upcoming Black Desert (EU) boss spawns; send the next one's alert now
+var crypto = require('crypto');
 var fs = require('fs');
 var http = require('http');
 var https = require('https');
@@ -27,7 +29,7 @@ var url = require('url');
 // Not 8085: the spike module's service may still hold it until TizenBrew restarts.
 var PORT = 8090;
 // tools/publish.sh writes the published version here.
-var SERVICE_VERSION = '0.37.0 (ce5e96c)';
+var SERVICE_VERSION = '0.38.0 (86e1365)';
 var UA = 'Mozilla/5.0 (SMART-TV; Linux; Tizen 6.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/76.0.3809.146 TV Safari/537.36';
 var CACHE_MS = 20000;
 // TizenBrew keeps its own config in /home/owner/share; tools/dev.sh points these elsewhere on the Mac.
@@ -411,8 +413,118 @@ function checkBosses() {
 }
 var bossTimer = setInterval(checkBosses, 30000);
 
+// ---- the dashboard's password. Only a salted scrypt hash is kept on the TV; tools/set_dashboard_password.py sends
+// the password from Kaan's .env. Logging in gives a session cookie; the script gets a token for agents on the Mac.
+// The TV's own page (127.0.0.1) never needs either. Until a password is set, everything stays open.
+var SESSION_MS = 90 * 24 * 3600000;
+var failures = {};
+
+function hashPassword(password, salt) {
+  return crypto.scryptSync(String(password), salt, 32).toString('hex');
+}
+
+function passwordMatches(auth, password) {
+  var a = Buffer.from(hashPassword(password, auth.salt), 'hex');
+  var b = Buffer.from(auth.hash, 'hex');
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
+function newSession(data, kind, ms) {
+  var token = crypto.randomBytes(24).toString('hex');
+  data.sessions = data.sessions || {};
+  var now = Date.now();
+  Object.keys(data.sessions).forEach(function (t) { if (data.sessions[t].until < now) delete data.sessions[t]; });
+  data.sessions[token] = { kind: kind, until: now + ms };
+  return token;
+}
+
+function requestToken(req) {
+  var bearer = /^Bearer\s+(\w+)$/.exec(req.headers.authorization || '');
+  if (bearer) return bearer[1];
+  var cookie = /(?:^|;\s*)anka_session=(\w+)/.exec(req.headers.cookie || '');
+  return cookie ? cookie[1] : null;
+}
+
+function isLocal(req) {
+  var a = req.socket.remoteAddress || '';
+  return a === '127.0.0.1' || a === '::1' || a === '::ffff:127.0.0.1';
+}
+
+function signedIn(req, data) {
+  var token = requestToken(req);
+  var s = token && data.sessions && data.sessions[token];
+  return !!(s && s.until > Date.now());
+}
+
+function allowed(req) {
+  if (isLocal(req)) return true;
+  var data = readData();
+  return !data.auth || signedIn(req, data);
+}
+
+function sessionCookie(token, ms) {
+  return 'anka_session=' + token + '; Path=/; Max-Age=' + Math.round(ms / 1000) + '; HttpOnly; SameSite=Strict';
+}
+
+function handleAuth(req, res, u) {
+  var data = readData();
+  if (u.pathname === '/auth/status') return replyJson(res, { set: !!data.auth, signedIn: isLocal(req) || !data.auth || signedIn(req, data) });
+  if (req.method !== 'POST') return reply(res, 405, 'text/plain', 'POST only');
+  if (u.pathname === '/auth/logout') {
+    var t = requestToken(req);
+    if (t && data.sessions) { delete data.sessions[t]; writeData(data); }
+    res.writeHead(204, { 'Set-Cookie': sessionCookie('x', 0) });
+    return res.end();
+  }
+  readBody(req, function (b) {
+    var body;
+    try { body = JSON.parse(b); } catch (e) { body = {}; }
+    var ip = req.socket.remoteAddress;
+    if (u.pathname === '/auth/login') {
+      var f = failures[ip];
+      if (f && f.count >= 5 && Date.now() - f.at < 30000) return reply(res, 429, 'text/plain', 'too many tries, wait 30 s');
+      if (!data.auth) return reply(res, 409, 'text/plain', 'no password set');
+      if (!passwordMatches(data.auth, body.password || '')) {
+        failures[ip] = { count: (f && Date.now() - f.at < 30000 ? f.count : 0) + 1, at: Date.now() };
+        log('dashboard: wrong password from ' + ip);
+        return reply(res, 401, 'text/plain', 'wrong password');
+      }
+      delete failures[ip];
+      var token = newSession(data, 'browser', SESSION_MS);
+      writeData(data);
+      log('dashboard: signed in from ' + ip);
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Set-Cookie': sessionCookie(token, SESSION_MS) });
+      return res.end('{"ok":true}');
+    }
+    if (u.pathname === '/auth/set') {
+      // The first password can be set from the home network; changing it needs the current one or a token.
+      if (data.auth && !signedIn(req, data) && !passwordMatches(data.auth, body.current || '')) return reply(res, 401, 'text/plain', 'not allowed');
+      if (typeof body.password !== 'string' || body.password.length < 6) return reply(res, 400, 'text/plain', 'password: at least 6 characters');
+      var salt = crypto.randomBytes(16).toString('hex');
+      data.auth = { salt: salt, hash: hashPassword(body.password, salt) };
+      data.sessions = {};   // a new password signs everyone out
+      var agent = newSession(data, 'agent', 365 * 24 * 3600000);
+      writeData(data);
+      log('dashboard: password set from ' + ip);
+      return replyJson(res, { ok: true, token: agent });
+    }
+    reply(res, 404, 'text/plain', 'not found');
+  });
+}
+
 function handle(req, res) {
   var u = url.parse(req.url, true);
+  if (u.pathname.indexOf('/auth/') === 0) return handleAuth(req, res, u);
+  // On the Mac the dashboard's images come from the working copy, same-origin (CSS masks need CORS otherwise).
+  if (process.env.ANKA_DEV_DIR && u.pathname.indexOf('/dev-app/img/') === 0 && !/\.\./.test(u.pathname)) {
+    var file = process.env.ANKA_DEV_DIR + '/app/' + u.pathname.slice('/dev-app/'.length);
+    var type = /\.svg$/.test(file) ? 'image/svg+xml' : /\.webp$/.test(file) ? 'image/webp' : 'image/png';
+    return fs.readFile(file, function (err, data) { err ? reply(res, 404, 'text/plain', 'not found') : reply(res, 200, type, data); });
+  }
+  // The dashboard's page is public (it shows the login); everything it calls needs a session.
+  if (u.pathname !== '/' && u.pathname !== '/dashboard' && req.method !== 'OPTIONS' && !allowed(req)) {
+    return reply(res, 401, 'text/plain', 'sign in first');
+  }
   if (req.method === 'OPTIONS') {
     res.writeHead(204, { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET, POST', 'Access-Control-Allow-Headers': 'Content-Type' });
     return res.end();
@@ -442,7 +554,10 @@ function handle(req, res) {
   if (u.pathname === '/' || u.pathname === '/dashboard') {
     return dashboardHtml(function (err, html) {
       if (err) return fail(res, 'dashboard', err);
-      reply(res, 200, 'text/html; charset=utf-8', html);
+      // Images (the painting, the marks) come from the app folder of the same version.
+      var app = process.env.ANKA_DEV_DIR ? '/dev-app/'
+        : (shared.base || 'https://cdn.jsdelivr.net/gh/ANKA-CORP/anka-tv-module@main/') + 'app/';
+      reply(res, 200, 'text/html; charset=utf-8', html.replace(/%%APP%%/g, app));
     });
   }
   if (u.pathname === '/favourites') {

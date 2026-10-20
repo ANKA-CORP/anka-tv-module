@@ -25,12 +25,13 @@ var http = require('http');
 var https = require('https');
 var net = require('net');
 var os = require('os');
+var tls = require('tls');
 var url = require('url');
 
 // Not 8085: the spike module's service may still hold it until TizenBrew restarts.
 var PORT = Number(process.env.ANKA_PORT) || 8090;   // another port only in tools/test.sh
 // tools/publish.sh writes the published version here.
-var SERVICE_VERSION = '0.47.0 (caa28db)';
+var SERVICE_VERSION = '0.48.0 (a97be2b)';
 var UA = 'Mozilla/5.0 (SMART-TV; Linux; Tizen 6.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/76.0.3809.146 TV Safari/537.36';
 var CACHE_MS = 20000;
 // TizenBrew keeps its own config in /home/owner/share; tools/dev.sh points these elsewhere on the Mac.
@@ -158,6 +159,73 @@ function installedFromRest(cb) {
         cb(list);
       }
     });
+  });
+}
+
+// ---- the TV's own remote-control channel (what the phone remote apps use), for keys apps can't send otherwise,
+// like switching to an HDMI input. A tiny WebSocket client: Node 12 has none built in. The TV asks once on screen
+// whether to allow "anka tv"; the token it then gives is kept in the data file.
+function remoteSession(onReady) {
+  var data = readData();
+  var path = '/api/v2/channels/samsung.remote.control?name=' + Buffer.from('anka tv').toString('base64') +
+    (data.remoteToken ? '&token=' + data.remoteToken : '');
+  var sock = tls.connect({ host: '127.0.0.1', port: Number(process.env.ANKA_REMOTE_PORT) || 8002, rejectUnauthorized: false }, function () {
+    sock.write('GET ' + path + ' HTTP/1.1\r\nHost: 127.0.0.1:8002\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n' +
+      'Sec-WebSocket-Key: ' + crypto.randomBytes(16).toString('base64') + '\r\nSec-WebSocket-Version: 13\r\n\r\n');
+  });
+  var buf = Buffer.alloc(0);
+  var upgraded = false;
+  var done = false;
+  var finish = function (err, msg) {
+    if (done) return;
+    done = true;
+    onReady(err, msg, function send(obj) {
+      var payload = Buffer.from(JSON.stringify(obj));
+      var mask = crypto.randomBytes(4);
+      var head = payload.length < 126 ? Buffer.from([0x81, 0x80 | payload.length])
+        : Buffer.from([0x81, 0x80 | 126, payload.length >> 8, payload.length & 255]);
+      for (var i = 0; i < payload.length; i++) payload[i] ^= mask[i % 4];
+      sock.write(Buffer.concat([head, mask, payload]));
+    }, function close() { sock.end(); });
+  };
+  sock.setTimeout(30000, function () { finish(new Error('no answer (allow "anka tv" on the TV?)')); sock.destroy(); });
+  sock.on('error', function (e) { finish(e); });
+  sock.on('data', function (chunk) {
+    buf = Buffer.concat([buf, chunk]);
+    if (!upgraded) {
+      var end = buf.indexOf('\r\n\r\n');
+      if (end < 0) return;
+      var status = buf.slice(0, end).toString().split('\r\n')[0];
+      if (!/ 101 /.test(status)) return finish(new Error('handshake: ' + status));
+      upgraded = true;
+      buf = buf.slice(end + 4);
+    }
+    // Frames from the TV aren't masked; text frames only, small ones.
+    while (buf.length >= 2) {
+      var len = buf[1] & 127, off = 2;
+      if (len === 126) { if (buf.length < 4) return; len = buf.readUInt16BE(2); off = 4; }
+      else if (len === 127) { if (buf.length < 10) return; len = buf.readUInt32BE(6); off = 10; }
+      if (buf.length < off + len) return;
+      var text = buf.slice(off, off + len).toString();
+      buf = buf.slice(off + len);
+      var msg;
+      try { msg = JSON.parse(text); } catch (e) { continue; }
+      if (msg.event === 'ms.channel.connect') {
+        if (msg.data && msg.data.token) { var d = readData(); d.remoteToken = msg.data.token; writeData(d); }
+        finish(null, msg);
+      } else if (msg.event === 'ms.channel.unauthorized' || msg.event === 'ms.channel.timeOut') {
+        finish(new Error(msg.event));
+      }
+    }
+  });
+}
+
+function remoteKey(key, cb) {
+  remoteSession(function (err, msg, send, close) {
+    if (err) return cb(err);
+    send({ method: 'ms.remote.control', params: { Cmd: 'Click', DataOfCmd: key, Option: 'false', TypeOfRemote: 'SendRemoteKey' } });
+    setTimeout(close, 500);
+    cb(null);
   });
 }
 
@@ -698,6 +766,22 @@ function handle(req, res) {
       if (file && fs.existsSync(file)) return fs.readFile(file, send);
       if (iconApp && iconApp.web) return webIcon(iconApp.web, send);
       reply(res, 404, 'text/plain', 'no icon');
+    });
+  }
+  // POST /remote?key=KEY_HDMI1: a key on the TV's own remote channel. GET just connects (for agents).
+  if (u.pathname === '/remote') {
+    if (req.method === 'POST') {
+      if (!/^KEY_[A-Z0-9_]{1,20}$/.test(u.query.key || '')) return reply(res, 400, 'text/plain', 'key=KEY_…');
+      return remoteKey(u.query.key, function (err) {
+        if (err) return fail(res, 'remote ' + u.query.key, err);
+        log('remote: ' + u.query.key);
+        replyJson(res, { sent: u.query.key });
+      });
+    }
+    return remoteSession(function (err, msg, send, close) {
+      if (err) return fail(res, 'remote', err);
+      close();
+      replyJson(res, { connected: true, event: msg.event, token: !!readData().remoteToken });
     });
   }
   // For agents: which of Tizen's APIs the service gets on this TV (and their methods).

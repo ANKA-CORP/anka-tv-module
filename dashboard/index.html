@@ -267,6 +267,11 @@
         </section>
       </div>
       <button type="button" id="ps5-go" class="primary" style="width: 100%; height: 52px; margin-bottom: 16px; background: #0070d1; border-color: #0070d1; color: #fff" hidden>PlayStation 5'e geç</button>
+      <section>
+        <h2>Uyku</h2>
+        <div class="quick" id="sleep-chips"></div>
+        <div class="hint" id="sleep-hint">Süre dolunca yayın kapanır; TV'ye bağlıysa TV de kapanır.</div>
+      </section>
       <section class="surface">
         <div class="remote">
           <button class="blank" tabindex="-1"></button><button data-key="UP" aria-label="Yukarı">▲</button><button data-key="CH_UP" aria-label="Kanal yukarı">CH+</button>
@@ -647,6 +652,28 @@
     });
   });
 
+  // ---- sleep timer
+
+  var sleepAt = 0;
+  [['Kapalı', 0], ['15 dk', 15], ['30 dk', 30], ['60 dk', 60], ['90 dk', 90]].forEach(function (c) {
+    var b = textEl('button', '', c[0]);
+    b.type = 'button';
+    b.dataset.sleep = c[1];
+    b.onclick = function () {
+      post('/sleep', { minutes: c[1] }).then(function (r) { return r.json(); }).then(function (r) {
+        renderSleep(r.at);
+        toast(c[1] ? 'TV ' + c[1] + ' dk sonra uyuyacak 🌙' : 'Uyku zamanlayıcısı kapalı');
+      }).catch(function (e) { toast('Kaydedilemedi: ' + e.message, true); });
+    };
+    $('sleep-chips').appendChild(b);
+  });
+
+  function renderSleep(at) {
+    sleepAt = at || 0;
+    Array.prototype.forEach.call(document.querySelectorAll('[data-sleep]'), function (b) { b.classList.toggle('primary', b.dataset.sleep === '0' && !sleepAt); });
+    $('sleep-hint').textContent = sleepAt ? 'TV ' + hm(sleepAt) + '\'de uyuyacak (' + Math.max(1, Math.round((sleepAt - Date.now()) / 60000)) + ' dk).' : 'Süre dolunca yayın kapanır; TV\'ye bağlıysa TV de kapanır.';
+  }
+
   // ---- messages
 
   ['Yemek hazır 🍲', 'Sesi kısar mısın?', 'Kapıya bakar mısın?', 'Yatma vakti 🌙'].forEach(function (text) {
@@ -905,6 +932,7 @@
       if (t) window.dispatchEvent(new CustomEvent('anka:theme', { detail: t.accent }));
     });
     es.addEventListener('favourites', function () { loadFavourites().catch(function () {}); });
+    es.addEventListener('sleep', function (e) { renderSleep(JSON.parse(e.data).at); });
     es.addEventListener('notice', function (e) {
       var n = JSON.parse(e.data);
       if (n.kind === 'live') { toast('🔴 ' + n.text); loadFavourites().catch(function () {}); }
@@ -918,6 +946,8 @@
     loadFavourites().catch(function (e) { toast('Favoriler yüklenemedi: ' + e.message, true); });
     loadBosses();
     loadAuto();
+    getJson('/sleep').then(function (r) { renderSleep(r.at); }).catch(function () {});
+    setInterval(function () { if (sleepAt) renderSleep(sleepAt > Date.now() ? sleepAt : 0); }, 30000);
     listen();
     // The stream only says when something changes; a quiet look every 12 s still notices the TV app closing.
     var ticks = 0;

@@ -573,6 +573,11 @@ function runCommand(cmd) {
     });
   } else if (parts[0] === 'reload') location.reload();
   else if (parts[0] === 'refresh') refresh();
+  else if (parts[0] === 'sleep') {
+    if (Player.isOpen()) Player.close();
+    Toast.show({ text: 'İyi geceler 🌙', seconds: 8 });
+    updateFocus(true);
+  }
   else log('unknown command: ' + cmd);
 }
 
@@ -586,7 +591,7 @@ function poll() {
 // GitHub's raw files are at most 5 minutes old; jsDelivr's @main can be hours behind.
 var VERSION_URL = 'https://raw.githubusercontent.com/ANKA-CORP/anka-tv-module/main/version.json';
 // tools/publish.sh writes the published version here.
-var PAGE_VERSION = '0.55.0';
+var PAGE_VERSION = '0.56.0';
 
 // The number in "0.34.0": publishes only count up.
 function versionNumber(v) { return parseInt(String(v).split('.')[1], 10) || 0; }

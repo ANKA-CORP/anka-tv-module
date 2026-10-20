@@ -18,6 +18,7 @@
 //   GET /auth/status, POST /auth/login, POST /auth/logout, POST /auth/set   the dashboard's password (see below)
 //   POST /reload-service                load the newest published version of this file (after tools/publish.sh)
 //   GET /autolaunch, POST /autolaunch   whether TizenBrew opens anka tv when it starts (its own config file)
+//   GET /sleep, POST /sleep             the sleep timer: {"minutes": 30} sets it, 0 clears it; GET says when
 //   GET /recent                         the channels watched last, newest first (from what the page reports)
 //   GET /events                         server-sent events for open dashboards: settings, favourites, state, notice
 //   GET /bosses, POST /boss-test        upcoming Black Desert (EU) boss spawns; send the next one's alert now
@@ -33,7 +34,7 @@ var url = require('url');
 // Not 8085: the spike module's service may still hold it until TizenBrew restarts.
 var PORT = Number(process.env.ANKA_PORT) || 8090;   // another port only in tools/test.sh
 // tools/publish.sh writes the published version here.
-var SERVICE_VERSION = '0.55.0 (b2d4f43)';
+var SERVICE_VERSION = '0.56.0 (8211f38)';
 var UA = 'Mozilla/5.0 (SMART-TV; Linux; Tizen 6.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/76.0.3809.146 TV Safari/537.36';
 var CACHE_MS = 20000;
 // TizenBrew keeps its own config in /home/owner/share; tools/dev.sh points these elsewhere on the Mac.
@@ -434,6 +435,28 @@ var wasLive = shared.wasLive || (shared.wasLive = {});
 
 // Channels that are live now and were seen offline before. The first look at a channel only learns its state,
 // so a restart doesn't announce everyone who is already live.
+// ---- sleep timer: a minute before, a notice; then the page stops playing and, if the remote channel is allowed,
+// the TV turns off. Kept in `shared`, so a service reload doesn't lose it.
+var sleepTimers = [];
+
+function setSleep(at) {
+  sleepTimers.forEach(clearTimeout);
+  sleepTimers = [];
+  shared.sleepAt = at;
+  broadcast('sleep', { at: at });
+  if (!at) return;
+  var left = at - Date.now();
+  if (left > 60000) sleepTimers.push(setTimeout(function () { notify({ text: '1 dakika sonra uyku 🌙', title: 'Uyku zamanlayıcısı', sound: true }); }, left - 60000));
+  sleepTimers.push(setTimeout(function () {
+    shared.sleepAt = 0;
+    broadcast('sleep', { at: 0 });
+    commands.push('sleep');
+    log('sleep: now');
+    if (readData().remoteToken) setTimeout(function () { remoteKey('KEY_POWER', function (err) { if (err) log('sleep: power off failed: ' + err); }); }, 4000);
+  }, Math.max(0, left)));
+}
+if (shared.sleepAt > Date.now()) setSleep(shared.sleepAt);
+
 // The last 12 channels watched, newest first; written only when the newest one changes.
 function rememberWatched(slug) {
   var data = readData();
@@ -710,6 +733,19 @@ function handle(req, res) {
   }
   if (u.pathname === '/events') return subscribe(req, res);
   if (u.pathname === '/recent') return replyJson(res, readData().recent || []);
+  if (u.pathname === '/sleep') {
+    if (req.method === 'POST') {
+      return readBody(req, function (b) {
+        var m;
+        try { m = Number(JSON.parse(b).minutes); } catch (e) { m = NaN; }
+        if (!(m >= 0 && m <= 600)) return reply(res, 400, 'text/plain', 'minutes: 0-600');
+        setSleep(m ? Date.now() + m * 60000 : 0);
+        log('sleep: ' + (m ? 'in ' + m + ' min' : 'off'));
+        replyJson(res, { at: shared.sleepAt });
+      });
+    }
+    return replyJson(res, { at: shared.sleepAt > Date.now() ? shared.sleepAt : 0 });
+  }
   if (u.pathname === '/bosses') {
     return bosses(function (err, spawns) {
       if (err) return fail(res, 'bosses', err);
@@ -984,6 +1020,7 @@ var server = http.createServer(function (req, res) {
 exports.stop = function (done) {
   clearInterval(bossTimer);
   clearInterval(pingTimer);
+  sleepTimers.forEach(clearTimeout);
   listeners.forEach(function (l) { l.end(); });
   clearInterval(liveTimer);
   server.close(function () { done(); });

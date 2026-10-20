@@ -17,6 +17,7 @@
 //   GET /                               the web dashboard, for a phone or the Mac: http://<tv ip>:8090/
 //   GET /auth/status, POST /auth/login, POST /auth/logout, POST /auth/set   the dashboard's password (see below)
 //   POST /reload-service                load the newest published version of this file (after tools/publish.sh)
+//   GET /autolaunch, POST /autolaunch   whether TizenBrew opens anka tv when it starts (its own config file)
 //   GET /events                         server-sent events for open dashboards: settings, favourites, state, notice
 //   GET /bosses, POST /boss-test        upcoming Black Desert (EU) boss spawns; send the next one's alert now
 var crypto = require('crypto');
@@ -31,7 +32,7 @@ var url = require('url');
 // Not 8085: the spike module's service may still hold it until TizenBrew restarts.
 var PORT = Number(process.env.ANKA_PORT) || 8090;   // another port only in tools/test.sh
 // tools/publish.sh writes the published version here.
-var SERVICE_VERSION = '0.48.0 (a97be2b)';
+var SERVICE_VERSION = '0.49.0 (d4daf1b)';
 var UA = 'Mozilla/5.0 (SMART-TV; Linux; Tizen 6.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/76.0.3809.146 TV Safari/537.36';
 var CACHE_MS = 20000;
 // TizenBrew keeps its own config in /home/owner/share; tools/dev.sh points these elsewhere on the Mac.
@@ -767,6 +768,25 @@ function handle(req, res) {
       if (iconApp && iconApp.web) return webIcon(iconApp.web, send);
       reply(res, 404, 'text/plain', 'no icon');
     });
+  }
+  // TizenBrew opens its "autolaunch" module when it starts. With Samsung's "Autorun Last App" on, the TV starts
+  // TizenBrew again after a power cycle, so anka tv is the first screen. The setting lives in TizenBrew's config.
+  if (u.pathname === '/autolaunch') {
+    var tbFile = process.env.ANKA_TIZENBREW_CONFIG || '/home/owner/share/tizenbrewConfig.json';
+    var tb;
+    try { tb = JSON.parse(fs.readFileSync(tbFile, 'utf8')); } catch (e) { return fail(res, 'TizenBrew config', e); }
+    var ours = (tb.modules || []).filter(function (m) { return /\/anka-tv-module@/.test(m); })[0] || null;
+    if (req.method === 'POST') {
+      return readBody(req, function (b) {
+        var on = /true/.test(b);
+        if (on && !ours) return reply(res, 409, 'text/plain', 'anka tv is not in TizenBrew\'s module list');
+        tb.autoLaunchModule = on ? ours : '';
+        try { fs.writeFileSync(tbFile, JSON.stringify(tb, null, 4)); } catch (e) { return fail(res, 'TizenBrew config', e); }
+        log('autolaunch: ' + (tb.autoLaunchModule || 'off'));
+        replyJson(res, { on: on, module: ours });
+      });
+    }
+    return replyJson(res, { on: !!ours && tb.autoLaunchModule === ours, module: ours });
   }
   // POST /remote?key=KEY_HDMI1: a key on the TV's own remote channel. GET just connects (for agents).
   if (u.pathname === '/remote') {

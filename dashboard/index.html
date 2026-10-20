@@ -333,6 +333,14 @@
         <div class="hint">TV kasarsa hareketi "Sade" yap.</div>
       </section>
       <section>
+        <h2>Açılış</h2>
+        <div class="toggle" role="group" aria-labelledby="auto-label">
+          <span id="auto-label">TizenBrew açılınca anka tv'yi aç</span>
+          <button type="button" data-auto="on">Açık</button><button type="button" data-auto="off">Kapalı</button>
+        </div>
+        <div class="hint">TV açılınca doğrudan anka tv gelsin diye TV'de bir kez: Ayarlar → Genel → Akıllı Özellikler → Son Uygulamayı Otomatik Çalıştır → Açık.</div>
+      </section>
+      <section>
         <h2>Hava durumu</h2>
         <form class="row" id="city-form">
           <input type="text" id="city" placeholder="Şehir, ör. Berlin" autocomplete="off">
@@ -795,6 +803,18 @@
     }).catch(function (err) { toast(/not found/.test(err.message) ? 'Şehir bulunamadı' : 'Kaydedilemedi: ' + err.message, true); });
   };
 
+  function renderAuto(on) {
+    Array.prototype.forEach.call(document.querySelectorAll('[data-auto]'), function (b) { b.classList.toggle('on', (b.dataset.auto === 'on') === on); });
+  }
+  function loadAuto() { getJson('/autolaunch').then(function (r) { renderAuto(r.on); }).catch(function () {}); }
+  Array.prototype.forEach.call(document.querySelectorAll('[data-auto]'), function (b) {
+    b.addEventListener('click', function () {
+      var on = b.dataset.auto === 'on';
+      post('/autolaunch', String(on)).then(function () { renderAuto(on); toast(on ? 'TizenBrew açılınca anka tv açılacak' : 'Otomatik açılış kapalı'); })
+        .catch(function (e) { toast('Kaydedilemedi: ' + e.message, true); });
+    });
+  });
+
   function loadSettings() {
     return getJson('/settings').then(function (s) {
       settings = s || {};
@@ -861,6 +881,7 @@
     loadSettings();
     loadFavourites().catch(function (e) { toast('Favoriler yüklenemedi: ' + e.message, true); });
     loadBosses();
+    loadAuto();
     listen();
     // The stream only says when something changes; a quiet look every 12 s still notices the TV app closing.
     var ticks = 0;

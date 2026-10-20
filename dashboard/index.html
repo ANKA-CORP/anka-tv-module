@@ -340,6 +340,8 @@
           <button type="button" data-ps5="">Yok</button><button type="button" data-ps5="KEY_HDMI1">1</button><button type="button" data-ps5="KEY_HDMI2">2</button><button type="button" data-ps5="KEY_HDMI3">3</button><button type="button" data-ps5="KEY_HDMI4">4</button>
         </div>
         <div class="hint">Seçince TV'nin Uygulamalar satırına bir PS5 kartı gelir; Kumanda'da da "PS5'e geç" çıkar.</div>
+        <div class="row" style="margin-top: 12px"><button type="button" id="remote-pair" style="flex: 1">TV'ye bağlan (bir kez)</button></div>
+        <div class="hint" id="remote-hint">Giriş değiştirmek için TV bir kez izin ister: TV'nin karşısındayken bas, çıkan soruya 30 saniye içinde "İzin ver" de.</div>
       </section>
       <section>
         <h2>Açılış</h2>
@@ -739,6 +741,13 @@
         .then(function () { toast(settings.ps5Input ? 'PS5: HDMI ' + settings.ps5Input.slice(-1) : 'PS5 kartı kaldırıldı'); })
         .catch(function (e) { toast('Kaydedilemedi: ' + e.message, true); });
     });
+  });
+  $('remote-pair').addEventListener('click', function () {
+    var b = $('remote-pair');
+    b.disabled = true;
+    b.textContent = 'TV\'de "İzin ver"e bas…';
+    getJson('/remote').then(function () { toast('TV bağlandı ✓'); b.textContent = 'TV bağlı ✓'; })
+      .catch(function () { toast('İzin gelmedi, tekrar dene', true); b.textContent = 'TV\'ye bağlan (bir kez)'; b.disabled = false; });
   });
   $('ps5-go').addEventListener('click', function () {
     post('/launch?id=ps5', '').then(function () { toast('TV PlayStation 5\'e geçiyor'); })

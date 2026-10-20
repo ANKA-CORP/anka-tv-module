@@ -32,7 +32,7 @@ var url = require('url');
 // Not 8085: the spike module's service may still hold it until TizenBrew restarts.
 var PORT = Number(process.env.ANKA_PORT) || 8090;   // another port only in tools/test.sh
 // tools/publish.sh writes the published version here.
-var SERVICE_VERSION = '0.52.0 (dc13c2b)';
+var SERVICE_VERSION = '0.53.0 (48702d9)';
 var UA = 'Mozilla/5.0 (SMART-TV; Linux; Tizen 6.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/76.0.3809.146 TV Safari/537.36';
 var CACHE_MS = 20000;
 // TizenBrew keeps its own config in /home/owner/share; tools/dev.sh points these elsewhere on the Mac.

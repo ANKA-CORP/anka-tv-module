@@ -223,13 +223,13 @@
 <div class="login" id="login" hidden>
   <div class="login-bg"></div>
   <div class="login-embers" id="login-embers"></div>
-  <form class="login-card" id="login-form" autocomplete="on">
+  <form class="login-card" id="login-form" autocomplete="on" novalidate>
     <div class="emblem" aria-hidden="true"></div>
     <div class="login-word">anka<span>tv</span></div>
     <input type="text" name="username" value="anka" autocomplete="username" hidden>
     <label class="sr" for="pw">Şifre</label>
     <div class="login-field">
-      <input type="password" id="pw" placeholder="Şifre" autocomplete="current-password" enterkeyhint="go">
+      <input type="password" id="pw" placeholder="Şifre" autocomplete="current-password" enterkeyhint="go" inputmode="numeric" pattern="[0-9]*">
       <button class="primary" type="submit" aria-label="Gir"><svg class="icon-svg" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg></button>
     </div>
     <div class="login-msg" id="login-msg">Panel için şifreni gir.</div>

@@ -18,6 +18,7 @@
 //   GET /auth/status, POST /auth/login, POST /auth/logout, POST /auth/set   the dashboard's password (see below)
 //   POST /reload-service                load the newest published version of this file (after tools/publish.sh)
 //   GET /autolaunch, POST /autolaunch   whether TizenBrew opens anka tv when it starts (its own config file)
+//   GET /recent                         the channels watched last, newest first (from what the page reports)
 //   GET /events                         server-sent events for open dashboards: settings, favourites, state, notice
 //   GET /bosses, POST /boss-test        upcoming Black Desert (EU) boss spawns; send the next one's alert now
 var crypto = require('crypto');
@@ -32,7 +33,7 @@ var url = require('url');
 // Not 8085: the spike module's service may still hold it until TizenBrew restarts.
 var PORT = Number(process.env.ANKA_PORT) || 8090;   // another port only in tools/test.sh
 // tools/publish.sh writes the published version here.
-var SERVICE_VERSION = '0.54.0 (5d70540)';
+var SERVICE_VERSION = '0.55.0 (b2d4f43)';
 var UA = 'Mozilla/5.0 (SMART-TV; Linux; Tizen 6.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/76.0.3809.146 TV Safari/537.36';
 var CACHE_MS = 20000;
 // TizenBrew keeps its own config in /home/owner/share; tools/dev.sh points these elsewhere on the Mac.
@@ -433,6 +434,15 @@ var wasLive = shared.wasLive || (shared.wasLive = {});
 
 // Channels that are live now and were seen offline before. The first look at a channel only learns its state,
 // so a restart doesn't announce everyone who is already live.
+// The last 12 channels watched, newest first; written only when the newest one changes.
+function rememberWatched(slug) {
+  var data = readData();
+  var recent = data.recent || [];
+  if (recent[0] === slug) return;
+  data.recent = [slug].concat(recent.filter(function (s) { return s !== slug; })).slice(0, 12);
+  writeData(data);
+}
+
 function newlyLive(seen, channels) {
   return channels.filter(function (c) {
     var before = seen[c.slug];
@@ -699,6 +709,7 @@ function handle(req, res) {
     return setTimeout(reloadService, 100);
   }
   if (u.pathname === '/events') return subscribe(req, res);
+  if (u.pathname === '/recent') return replyJson(res, readData().recent || []);
   if (u.pathname === '/bosses') {
     return bosses(function (err, spawns) {
       if (err) return fail(res, 'bosses', err);
@@ -903,6 +914,7 @@ function handle(req, res) {
           pageState.at = Date.now();
           // The page reports every 5 s; dashboards only hear about real changes.
           if (JSON.stringify(Object.assign({}, pageState, { at: 0 })) !== before) broadcast('state', { state: pageState, ageSeconds: 0 });
+          if (pageState.screen === 'player' && /^[\w-]{1,40}$/.test(pageState.slug || '')) rememberWatched(pageState.slug);
         } catch (e) {}
         reply(res, 204, 'text/plain', '');
       });

@@ -122,7 +122,12 @@ function loadRowsFor() {
     api('/apps').catch(function (e) { log('apps not loaded: ' + e); return []; }),
     favs.length ? api('/channels?slugs=' + favs.map(encodeURIComponent).join(',')) : Promise.resolve([]),
     api('/streams?language=tr&limit=30'),
-    api('/streams?limit=30')
+    api('/streams?limit=30'),
+    // Channels watched lately, without the favourites (they have their own row).
+    api('/recent').then(function (slugs) {
+      slugs = slugs.filter(function (s) { return favs.indexOf(s) < 0; }).slice(0, 10);
+      return slugs.length ? api('/channels?slugs=' + slugs.map(encodeURIComponent).join(',')) : [];
+    }).catch(function () { return []; })
   ]).then(function (r) {
     var apps = r[0].map(function (a) { return { kind: 'app', key: a.id, id: a.id, name: a.name, color: a.color, icon: a.icon }; });
     var stream = function (s) { s.kind = 'stream'; s.key = s.slug; return s; };
@@ -130,6 +135,7 @@ function loadRowsFor() {
     var list = [];
     if (apps.length) list.push({ id: 'apps', kind: 'apps', title: 'Uygulamalar', items: apps });
     list.push({ id: 'fav', kind: 'streams', title: 'Kick · Favoriler', note: favItems.filter(function (s) { return s.live; }).length + ' canlı', items: favItems });
+    if (r[4].length) list.push({ id: 'recent', kind: 'streams', title: 'Son izlenenler', items: r[4].map(stream) });
     list.push({ id: 'tr', kind: 'streams', title: 'Kick · Türkçe canlı yayınlar', items: r[2].map(stream) });
     list.push({ id: 'all', kind: 'streams', title: "Kick · En çok izlenenler", items: r[3].map(stream) });
     return list;
@@ -580,7 +586,7 @@ function poll() {
 // GitHub's raw files are at most 5 minutes old; jsDelivr's @main can be hours behind.
 var VERSION_URL = 'https://raw.githubusercontent.com/ANKA-CORP/anka-tv-module/main/version.json';
 // tools/publish.sh writes the published version here.
-var PAGE_VERSION = '0.54.0';
+var PAGE_VERSION = '0.55.0';
 
 // The number in "0.34.0": publishes only count up.
 function versionNumber(v) { return parseInt(String(v).split('.')[1], 10) || 0; }

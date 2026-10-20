@@ -6,5 +6,5 @@
   "appName": "anka-tv",
   "appPath": "app/index.html",
   "serviceFile": "service/service.js",
-  "keys": []
+  "keys": ["ChannelUp", "ChannelDown", "MediaPlayPause", "MediaPlay", "MediaPause"]
 }

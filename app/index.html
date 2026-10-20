@@ -1,37 +1,155 @@
 <!doctype html>
-<html>
+<html lang="tr">
 <head>
 <meta charset="utf-8">
 <title>anka-tv</title>
+<!--
+  CSS stays inline: TizenBrew's proxy (127.0.0.1:8081) doesn't pass content types, and browsers refuse
+  stylesheets without text/css. Classic scripts don't care, so the JavaScript lives in separate files.
+  The TV runs Chromium 76: no flex gap, inset, aspect-ratio or optional chaining.
+-->
 <style>
-  body { margin: 0; background: #0b0b0f; color: #eee; font: 28px/1.4 sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; }
-  h1 { font-size: 72px; margin: 0 0 12px; }
-  #status { color: #888; }
+  :root {
+    --bg: #0b0b0f;
+    --card: #1b1b22;
+    --text: #f4f4f6;
+    --muted: #9a9aa6;
+    --accent: #53fc18;
+    --live: #e5243b;
+  }
+  html, body { margin: 0; height: 100%; background: var(--bg); overflow: hidden; }
+  body { font-family: "SamsungOne", "Samsung Sans", Roboto, "Helvetica Neue", Arial, sans-serif; color: var(--text); }
+  #stage { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; overflow: hidden; transform-origin: 0 0; background: var(--bg); }
+
+  /* Top bar */
+  #topbar { position: absolute; left: 96px; right: 96px; top: 44px; height: 48px; display: flex; align-items: center; justify-content: space-between; z-index: 5; }
+  #brand { font-size: 30px; font-weight: 800; letter-spacing: .5px; }
+  #brand span { color: var(--accent); }
+  #clock { font-size: 34px; font-weight: 600; color: var(--text); }
+
+  /* Hero: the focused stream */
+  #hero { position: absolute; left: 0; top: 0; width: 1920px; height: 640px; }
+  .hero-bg { position: absolute; right: 0; top: 0; width: 1140px; height: 640px; background-size: cover; background-position: center; opacity: 0; transition: opacity .45s ease; }
+  .hero-bg.on { opacity: 1; }
+  #hero-fade { position: absolute; left: 0; top: 0; width: 1920px; height: 640px;
+    background: linear-gradient(90deg, var(--bg) 0%, var(--bg) 38%, rgba(11,11,15,.85) 50%, rgba(11,11,15,0) 75%),
+                linear-gradient(0deg, var(--bg) 0%, rgba(11,11,15,0) 40%),
+                linear-gradient(180deg, rgba(11,11,15,.75) 0%, rgba(11,11,15,0) 160px); }
+  #hero-info { position: absolute; left: 96px; top: 168px; width: 900px; }
+  #hero-tags { display: flex; align-items: center; height: 36px; margin-bottom: 20px; font-size: 24px; color: var(--muted); }
+  .pill { display: inline-block; padding: 4px 12px; border-radius: 8px; font-size: 20px; font-weight: 800; letter-spacing: 1px; margin-right: 16px; }
+  .pill.live { background: var(--live); color: #fff; }
+  .pill.off { background: #33333d; color: var(--muted); }
+  #hero-name { display: flex; align-items: center; font-size: 64px; font-weight: 800; line-height: 1.1; margin-bottom: 18px; }
+  #hero-name img { width: 76px; height: 76px; border-radius: 50%; margin-right: 22px; object-fit: cover; background: var(--card); }
+  #hero-title { font-size: 32px; line-height: 1.35; color: #d6d6dc; max-height: 88px; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  #hero-meta { margin-top: 22px; font-size: 26px; color: var(--muted); }
+
+  /* Rows */
+  #rows { position: absolute; left: 0; top: 618px; width: 1920px; height: 1000px; }
+  #rows-inner { transition: transform .3s ease; }
+  .row { height: 360px; transition: opacity .3s ease; }
+  .row.above { opacity: 0; }
+  .row-title { padding-left: 96px; height: 52px; font-size: 30px; font-weight: 700; color: #e6e6ea; }
+  .row-title small { font-size: 22px; font-weight: 500; color: var(--muted); margin-left: 14px; }
+  .track { position: relative; height: 280px; white-space: nowrap; transition: transform .25s ease; padding-left: 96px; padding-top: 14px; }
+
+  .card { position: relative; display: inline-block; vertical-align: top; width: 384px; height: 216px; margin-right: 32px; border-radius: 14px; overflow: hidden; background: var(--card);
+    transition: transform .18s ease, box-shadow .18s ease; }
+  .card img.thumb { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .card .shade { position: absolute; left: 0; right: 0; bottom: 0; height: 110px; background: linear-gradient(0deg, rgba(0,0,0,.85), rgba(0,0,0,0)); }
+  .card .label { position: absolute; left: 18px; right: 18px; bottom: 14px; font-size: 24px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .card .label small { display: block; font-size: 19px; font-weight: 500; color: #c9c9d1; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .card .pill { position: absolute; left: 14px; top: 14px; font-size: 17px; padding: 3px 10px; }
+  .card .viewers { position: absolute; right: 14px; top: 14px; font-size: 18px; font-weight: 700; padding: 3px 10px; border-radius: 8px; background: rgba(0,0,0,.6); }
+  .card .fav { position: absolute; right: 14px; bottom: 16px; font-size: 24px; color: var(--accent); }
+  .card.offline .avatar { position: absolute; left: 50%; top: 34px; width: 96px; height: 96px; margin-left: -48px; border-radius: 50%; object-fit: cover; filter: grayscale(1); opacity: .7; background: #2a2a33; }
+  .card.offline .label { color: var(--muted); text-align: center; }
+  .card.hint { background: #15151b; border: 2px dashed #34343e; }
+  .card.hint .label { white-space: normal; text-align: center; top: 60px; bottom: auto; color: var(--muted); font-weight: 600; }
+  .card.focused { transform: scale(1.09); box-shadow: 0 0 0 5px #fff, 0 24px 48px rgba(0,0,0,.65); z-index: 2; }
+  .skeleton { background: linear-gradient(90deg, #17171d 0%, #22222a 50%, #17171d 100%); background-size: 200% 100%; animation: shimmer 1.4s infinite linear; }
+  @keyframes shimmer { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+
+  #empty { position: absolute; left: 96px; top: 680px; font-size: 30px; color: var(--muted); display: none; }
+
+  /* Player */
+  #player { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; background: #000; display: none; z-index: 10; }
+  #player.open { display: block; }
+  #video { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; background: #000; }
+  #spinner { position: absolute; left: 50%; top: 50%; width: 84px; height: 84px; margin: -42px 0 0 -42px; border-radius: 50%;
+    border: 7px solid rgba(255,255,255,.18); border-top-color: var(--accent); animation: spin .9s linear infinite; display: none; }
+  #spinner.on { display: block; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  #player-msg { position: absolute; left: 0; right: 0; top: 600px; text-align: center; font-size: 30px; color: #ddd; }
+  #osd { position: absolute; left: 0; right: 0; bottom: 0; height: 400px; padding: 0 96px; box-sizing: border-box;
+    background: linear-gradient(0deg, rgba(0,0,0,.96) 0%, rgba(0,0,0,.88) 50%, rgba(0,0,0,0) 100%); opacity: 0; transition: opacity .25s ease; }
+  #osd.on { opacity: 1; }
+  #osd-main { position: absolute; left: 96px; right: 520px; bottom: 96px; }
+  #osd-name { display: flex; align-items: center; font-size: 46px; font-weight: 800; margin-bottom: 12px; }
+  #osd-name img { width: 64px; height: 64px; border-radius: 50%; margin-right: 18px; object-fit: cover; background: var(--card); }
+  #osd-name .pill { margin-left: 20px; margin-right: 0; }
+  #osd-title { font-size: 28px; color: #ddd; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #osd-meta { margin-top: 10px; font-size: 24px; color: var(--muted); }
+  #osd-side { position: absolute; right: 96px; bottom: 96px; text-align: right; }
+  #osd-quality { display: inline-block; font-size: 26px; font-weight: 700; padding: 8px 16px; border-radius: 10px; background: rgba(255,255,255,.12); }
+  #osd-hints { position: absolute; left: 96px; right: 96px; bottom: 34px; font-size: 21px; color: #a9a9b3; }
+  #osd-hints b { display: inline-block; min-width: 30px; padding: 1px 8px; margin-right: 8px; border-radius: 6px; background: rgba(255,255,255,.14); color: #fff; text-align: center; font-weight: 700; }
+  #osd-hints span { margin-right: 36px; }
+  #channel-flash { position: absolute; right: 96px; top: 70px; font-size: 30px; font-weight: 700; padding: 12px 22px; border-radius: 12px; background: rgba(0,0,0,.6); opacity: 0; transition: opacity .2s ease; }
+  #channel-flash.on { opacity: 1; }
+
+  /* Toasts */
+  #toasts { position: absolute; right: 64px; top: 120px; width: 560px; z-index: 20; }
+  .toast { margin-bottom: 16px; padding: 22px 26px; border-radius: 16px; background: rgba(28,28,36,.96); box-shadow: 0 16px 40px rgba(0,0,0,.5);
+    border-left: 6px solid var(--accent); font-size: 26px; line-height: 1.35; transform: translateX(620px); transition: transform .35s ease, opacity .35s ease; }
+  .toast.in { transform: translateX(0); }
+  .toast.out { opacity: 0; }
+  .toast.warn { border-left-color: #ffb020; }
+  .toast.error { border-left-color: var(--live); }
+  .toast small { display: block; font-size: 20px; color: var(--muted); margin-bottom: 4px; }
 </style>
 </head>
 <body>
-<div>
-  <h1>anka-tv</h1>
-  <div id="status">checking the service…</div>
+<div id="stage">
+  <div id="hero">
+    <div class="hero-bg" id="hero-bg-a"></div>
+    <div class="hero-bg" id="hero-bg-b"></div>
+    <div id="hero-fade"></div>
+    <div id="hero-info">
+      <div id="hero-tags"></div>
+      <div id="hero-name"></div>
+      <div id="hero-title"></div>
+      <div id="hero-meta"></div>
+    </div>
+  </div>
+  <div id="topbar"><div id="brand">anka<span>tv</span></div><div id="clock"></div></div>
+  <div id="rows"><div id="rows-inner"></div></div>
+  <div id="empty"></div>
+
+  <div id="player">
+    <video id="video" playsinline></video>
+    <div id="spinner"></div>
+    <div id="player-msg"></div>
+    <div id="channel-flash"></div>
+    <div id="osd">
+      <div id="osd-main">
+        <div id="osd-name"></div>
+        <div id="osd-title"></div>
+        <div id="osd-meta"></div>
+      </div>
+      <div id="osd-side"><div id="osd-quality"></div></div>
+      <div id="osd-hints">
+        <span><b>▲▼</b>Kanal</span><span><b>◀▶</b>Kalite</span><span><b>OK</b>Bilgi</span><span><b>⏯</b>Duraklat</span><span><b>↩</b>Geri</span>
+      </div>
+    </div>
+  </div>
+
+  <div id="toasts"></div>
 </div>
-<script>
-  // The module's service (service/service.js) runs on the TV itself; on the Mac, tools/dev.sh starts it.
-  var SERVICE = 'http://127.0.0.1:8085';
-  var statusEl = document.getElementById('status');
-
-  function log(msg) {
-    fetch(SERVICE + '/log', { method: 'POST', body: msg }).catch(function () {});
-  }
-
-  fetch(SERVICE + '/top')
-    .then(function (r) { return r.text(); })
-    .then(function (slug) { statusEl.textContent = 'service ok · most watched now: ' + slug; log('app started, top: ' + slug); })
-    .catch(function (e) { statusEl.textContent = 'service unreachable: ' + e; });
-
-  document.addEventListener('keydown', function (e) {
-    // Back (10009 on the Samsung remote, Backspace on a keyboard) returns to TizenBrew's menu.
-    if (e.keyCode === 10009 || e.keyCode === 8) { history.back(); e.preventDefault(); }
-  });
-</script>
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.17/dist/hls.min.js"></script>
+<script src="util.js"></script>
+<script src="player.js"></script>
+<script src="app.js"></script>
 </body>
 </html>

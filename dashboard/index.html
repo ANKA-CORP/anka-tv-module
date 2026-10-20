@@ -286,6 +286,12 @@
         <button type="submit">Ekle</button>
       </form>
       <div class="hint">Canlı bir kanala dokununca TV'de açılır. TV'de bir kartın üstünde OK'a basılı tutmak da favorilere ekler.</div>
+      <section style="margin-top: 18px; border-top: 1px solid var(--line)">
+        <div class="toggle" role="group" aria-labelledby="live-label">
+          <span id="live-label">Favori yayına girince TV'de haber ver</span>
+          <button type="button" data-live="on">Açık</button><button type="button" data-live="off">Kapalı</button>
+        </div>
+      </section>
     </div>
 
     <div class="view" data-view="boss">
@@ -697,7 +703,19 @@
     Array.prototype.forEach.call(document.querySelectorAll('[data-motion]'), function (b) {
       b.classList.toggle('on', b.dataset.motion === (settings.motion || 'full'));
     });
+    Array.prototype.forEach.call(document.querySelectorAll('[data-live]'), function (b) {
+      b.classList.toggle('on', b.dataset.live === (settings.liveAlerts === false ? 'off' : 'on'));
+    });
   }
+  Array.prototype.forEach.call(document.querySelectorAll('[data-live]'), function (b) {
+    b.addEventListener('click', function () {
+      settings.liveAlerts = b.dataset.live === 'on';
+      renderToggles();
+      post('/settings', { liveAlerts: settings.liveAlerts })
+        .then(function () { toast(settings.liveAlerts ? 'Yayın haberleri açık' : 'Yayın haberleri kapalı'); })
+        .catch(function (e) { toast('Kaydedilemedi: ' + e.message, true); });
+    });
+  });
   Array.prototype.forEach.call(document.querySelectorAll('[data-boss]'), function (b) {
     b.addEventListener('click', function () {
       settings.bossAlerts = b.dataset.boss === 'on';

@@ -27,9 +27,9 @@ var os = require('os');
 var url = require('url');
 
 // Not 8085: the spike module's service may still hold it until TizenBrew restarts.
-var PORT = 8090;
+var PORT = Number(process.env.ANKA_PORT) || 8090;   // another port only in tools/test.sh
 // tools/publish.sh writes the published version here.
-var SERVICE_VERSION = '0.40.0 (041069f)';
+var SERVICE_VERSION = '0.42.0 (e2cc49a)';
 var UA = 'Mozilla/5.0 (SMART-TV; Linux; Tizen 6.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/76.0.3809.146 TV Safari/537.36';
 var CACHE_MS = 20000;
 // TizenBrew keeps its own config in /home/owner/share; tools/dev.sh points these elsewhere on the Mac.
@@ -303,6 +303,40 @@ function queue(req, res, list, parse) {
   replyJson(res, list.splice(0, list.length));
 }
 
+// ---- favourites going live: every 2 minutes, a toast for each favourite that started streaming since the last look.
+var wasLive = shared.wasLive || (shared.wasLive = {});
+
+// Channels that are live now and were seen offline before. The first look at a channel only learns its state,
+// so a restart doesn't announce everyone who is already live.
+function newlyLive(seen, channels) {
+  return channels.filter(function (c) {
+    var before = seen[c.slug];
+    seen[c.slug] = !!c.live;
+    return before === false && c.live;
+  });
+}
+
+function checkLive() {
+  var data = readData();
+  var slugs = data.favourites || [];
+  if ((data.settings || {}).liveAlerts === false || !slugs.length) return;
+  var found = [];
+  var left = slugs.length;
+  slugs.forEach(function (slug) {
+    channelInfo(slug, function (err, c) {
+      if (!err) found.push(c);
+      if (--left) return;
+      newlyLive(wasLive, found).forEach(function (c) {
+        notifications.push({ kind: 'live', title: 'Yayına başladı', text: c.name + (c.title ? ' · ' + c.title : ''),
+          avatar: c.avatar, slug: c.slug, sound: true, seconds: 10 });
+        log('live alert: ' + c.slug);
+      });
+    });
+  });
+}
+var liveTimer = setInterval(checkLive, 120000);
+setTimeout(checkLive, 5000);
+
 // ---- Black Desert boss alerts (EU). The schedule comes from MMOTIMER's page: Garmoth answers scripts with a
 // Cloudflare challenge. Its weekly grid holds every spawn (the "upcoming" list skips the next one, shown apart).
 var BOSS_URL = 'https://mmotimer.com/bdo/?server=eu';
@@ -376,13 +410,17 @@ function bosses(cb) {
   if (bossCache && Date.now() - bossCache.fetched < 30 * 60000 && bossCache.spawns.length) {
     return cb(null, bossCache.spawns.filter(function (s) { return s.at > Date.now(); }));
   }
-  get(BOSS_URL, function (err, html, status) {
-    if (err || status !== 200) return cb(err || new Error('HTTP ' + status + ' from ' + BOSS_URL));
-    var spawns = parseBosses(html, Date.now());
-    if (!spawns.length) return cb(new Error('no boss rows in ' + BOSS_URL));
-    bossCache = { fetched: Date.now(), spawns: spawns };
-    cb(null, spawns.filter(function (s) { return s.at > Date.now(); }));
-  });
+  // tools/test.sh feeds a saved copy of the page.
+  if (process.env.ANKA_BOSS_FILE) return fs.readFile(process.env.ANKA_BOSS_FILE, 'utf8', function (err, html) { useBossPage(err, html, 200, cb); });
+  get(BOSS_URL, function (err, html, status) { useBossPage(err, html, status, cb); });
+}
+
+function useBossPage(err, html, status, cb) {
+  if (err || status !== 200) return cb(err || new Error('HTTP ' + status + ' from ' + BOSS_URL));
+  var spawns = parseBosses(html, Date.now());
+  if (!spawns.length) return cb(new Error('no boss rows in ' + BOSS_URL));
+  bossCache = { fetched: Date.now(), spawns: spawns };
+  cb(null, spawns.filter(function (s) { return s.at > Date.now(); }));
 }
 
 function bossNotice(spawn, test) {
@@ -446,6 +484,7 @@ function requestToken(req) {
 }
 
 function isLocal(req) {
+  if (process.env.ANKA_NO_LOCAL_BYPASS) return false;   // tools/test.sh tests the password from 127.0.0.1
   var a = req.socket.remoteAddress || '';
   return a === '127.0.0.1' || a === '::1' || a === '::ffff:127.0.0.1';
 }
@@ -730,6 +769,7 @@ var server = http.createServer(function (req, res) {
 // Called by service.js before it loads a newer version: free the port, drop the page's keep-alive connections.
 exports.stop = function (done) {
   clearInterval(bossTimer);
+  clearInterval(liveTimer);
   server.close(function () { done(); });
   sockets.slice().forEach(function (s) { s.destroy(); });
 };

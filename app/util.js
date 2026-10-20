@@ -203,7 +203,14 @@ var Toast = (function () {
     if (typeof n === 'string') n = { text: n };
     if (n.kind === 'boss') return boss(n);
     box = box || document.getElementById('toasts');
-    var t = el('div', 'toast' + (n.level && n.level !== 'info' ? ' ' + n.level : ''));
+    var t = el('div', 'toast' + (n.level && n.level !== 'info' ? ' ' + n.level : '') + (n.kind === 'live' ? ' live' : ''));
+    // A channel's picture in place of the mark (a favourite going live).
+    if (n.avatar) {
+      var face = el('img', 'toast-avatar');
+      face.src = n.avatar;
+      t.classList.add('has-avatar');
+      t.appendChild(face);
+    }
     if (n.title) t.appendChild(el('small', '', n.title));
     t.appendChild(document.createTextNode(n.text));
     box.appendChild(t);

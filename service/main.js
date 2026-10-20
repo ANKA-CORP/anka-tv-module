@@ -32,7 +32,7 @@ var url = require('url');
 // Not 8085: the spike module's service may still hold it until TizenBrew restarts.
 var PORT = Number(process.env.ANKA_PORT) || 8090;   // another port only in tools/test.sh
 // tools/publish.sh writes the published version here.
-var SERVICE_VERSION = '0.50.0 (2ab12bd)';
+var SERVICE_VERSION = '0.51.0 (f9ea52d)';
 var UA = 'Mozilla/5.0 (SMART-TV; Linux; Tizen 6.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/76.0.3809.146 TV Safari/537.36';
 var CACHE_MS = 20000;
 // TizenBrew keeps its own config in /home/owner/share; tools/dev.sh points these elsewhere on the Mac.
@@ -175,12 +175,13 @@ function installedFromRest(cb) {
 // ---- the TV's own remote-control channel (what the phone remote apps use), for keys apps can't send otherwise,
 // like switching to an HDMI input. A tiny WebSocket client: Node 12 has none built in. The TV asks once on screen
 // whether to allow "anka tv"; the token it then gives is kept in the data file.
-function remoteSession(onReady) {
+function remoteSession(onReady, host) {
   var data = readData();
   var path = '/api/v2/channels/samsung.remote.control?name=' + Buffer.from('anka tv').toString('base64') +
     (data.remoteToken ? '&token=' + data.remoteToken : '');
-  var sock = tls.connect({ host: '127.0.0.1', port: Number(process.env.ANKA_REMOTE_PORT) || 8002, rejectUnauthorized: false }, function () {
-    sock.write('GET ' + path + ' HTTP/1.1\r\nHost: 127.0.0.1:8002\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n' +
+  host = host || '127.0.0.1';
+  var sock = tls.connect({ host: host, port: Number(process.env.ANKA_REMOTE_PORT) || 8002, rejectUnauthorized: false }, function () {
+    sock.write('GET ' + path + ' HTTP/1.1\r\nHost: ' + host + ':8002\r\nOrigin: http://' + host + '\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n' +
       'Sec-WebSocket-Key: ' + crypto.randomBytes(16).toString('base64') + '\r\nSec-WebSocket-Version: 13\r\n\r\n');
   });
   var buf = Buffer.alloc(0);
@@ -206,6 +207,7 @@ function remoteSession(onReady) {
       var end = buf.indexOf('\r\n\r\n');
       if (end < 0) return;
       var status = buf.slice(0, end).toString().split('\r\n')[0];
+      log('remote: ' + host + ' answered ' + status);
       if (!/ 101 /.test(status)) return finish(new Error('handshake: ' + status));
       upgraded = true;
       buf = buf.slice(end + 4);
@@ -220,6 +222,7 @@ function remoteSession(onReady) {
       buf = buf.slice(off + len);
       var msg;
       try { msg = JSON.parse(text); } catch (e) { continue; }
+      log('remote: event ' + msg.event);
       if (msg.event === 'ms.channel.connect') {
         if (msg.data && msg.data.token) { var d = readData(); d.remoteToken = msg.data.token; writeData(d); }
         finish(null, msg);
@@ -819,7 +822,7 @@ function handle(req, res) {
       if (err) return fail(res, 'remote', err);
       close();
       replyJson(res, { connected: true, event: msg.event, token: !!readData().remoteToken });
-    });
+    }, u.query.lan ? lanAddress() : null);
   }
   // For agents: which of Tizen's APIs the service gets on this TV (and their methods).
   if (u.pathname === '/tizen-probe') {

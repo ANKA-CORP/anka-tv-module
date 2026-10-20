@@ -27,7 +27,7 @@ var url = require('url');
 // Not 8085: the spike module's service may still hold it until TizenBrew restarts.
 var PORT = 8090;
 // tools/publish.sh writes the published version here.
-var SERVICE_VERSION = '0.33.0 (072f6fa)';
+var SERVICE_VERSION = '0.34.0 (0b9a0da)';
 var UA = 'Mozilla/5.0 (SMART-TV; Linux; Tizen 6.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/76.0.3809.146 TV Safari/537.36';
 var CACHE_MS = 20000;
 // TizenBrew keeps its own config in /home/owner/share; tools/dev.sh points these elsewhere on the Mac.
@@ -50,13 +50,13 @@ function writeData(data) {
 
 // Well-known Samsung app IDs; /apps keeps those installed on this TV. Colours are for our own tiles.
 var APP_CATALOGUE = [
-  { id: '111299001912', name: 'YouTube', color: '#ff0033' },
-  { id: '3201907018807', name: 'Netflix', color: '#e50914' },
-  { id: '3201910019365', name: 'Prime Video', color: '#1a98ff' },
-  { id: '3201901017640', name: 'Disney+', color: '#113ccf' },
-  { id: '3201807016597', name: 'Apple TV', color: '#3a3a3c' },
-  { id: '3201606009684', name: 'Spotify', color: '#1db954' },
-  { id: '3202010022079', name: 'İnternet', color: '#5b5bd6' }
+  { id: '111299001912', tizen: '9Ur5IzDKqV.TizenYouTube', name: 'YouTube', color: '#ff0033' },
+  { id: '3201907018807', tizen: 'org.tizen.netflix-app', name: 'Netflix', color: '#e50914' },
+  { id: '3201910019365', tizen: 'org.tizen.primevideo', name: 'Prime Video', color: '#1a98ff' },
+  { id: '3201901017640', tizen: 'MCmYXNxgcu.DisneyPlus', name: 'Disney+', color: '#113ccf' },
+  { id: '3201807016597', tizen: 'com.samsung.tv.aria-video', name: 'Apple TV', color: '#3a3a3c' },
+  { id: '3201606009684', tizen: 'rJeHak5zRg.Spotify', name: 'Spotify', color: '#1db954' },
+  { id: '3202010022079', tizen: 'org.tizen.browser', name: 'İnternet', color: '#5b5bd6' }
 ];
 // The TV's own app API; on the Mac (tools/dev.sh) it's unset and launching only logs.
 // Called on the TV's network address: from 127.0.0.1 the TV answers launches with 401 (tried 2026-10-20).
@@ -101,6 +101,19 @@ function tvApi(method, id, cb) {
 
 function installedApps(cb) {
   if (!TV_API) return cb(APP_CATALOGUE);
+  tizenApps(function (err, list) {
+    if (err) return installedFromRest(cb);
+    cb(APP_CATALOGUE.map(function (app) {
+      var t = tizenAppFor(app, list);
+      if (!t) return null;
+      var a = { id: app.id, name: app.name, color: app.color };
+      if (t.iconPath) a.icon = '/app-icon?id=' + app.id;
+      return a;
+    }).filter(function (a) { return a; }));
+  });
+}
+
+function installedFromRest(cb) {
   var hit = cache.apps;
   if (hit && Date.now() - hit.at < 600000) return cb(hit.data);
   var found = [];
@@ -133,9 +146,9 @@ function tizenApps(cb) {
 
 function plain(s) { return String(s || '').toLowerCase().replace(/[^a-z0-9]/g, ''); }
 
-// Our catalogue has store ids (what the REST API takes); Tizen's ids differ, so try the package id, then the name.
+// The catalogue names each app's Tizen id (its store id is what the REST API takes); the name is the fallback.
 function tizenAppFor(app, list) {
-  return list.filter(function (a) { return a.packageId === app.id || a.id === app.id; })[0] ||
+  return list.filter(function (a) { return a.id === app.tizen; })[0] ||
     list.filter(function (a) { return plain(a.name) === plain(app.name); })[0] || null;
 }
 
@@ -470,6 +483,18 @@ function handle(req, res) {
           replyJson(res, { launched: true });
         }, function (e) { fail(res, 'launch ' + app.name + ' (' + t.id + ')', e.name + ' ' + e.message); });
       } catch (e) { fail(res, 'launch ' + app.name, e); }
+    });
+  }
+  if (u.pathname === '/app-icon') {
+    var iconApp = APP_CATALOGUE.filter(function (a) { return a.id === u.query.id; })[0];
+    return tizenApps(function (err, list) {
+      var t = !err && iconApp && tizenAppFor(iconApp, list);
+      if (!t || !t.iconPath) return reply(res, 404, 'text/plain', 'no icon');
+      fs.readFile(t.iconPath.replace(/^file:\/\//, ''), function (err2, png) {
+        if (err2) return fail(res, 'icon ' + iconApp.name, err2);
+        res.writeHead(200, { 'Content-Type': 'image/png', 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'max-age=86400' });
+        res.end(png);
+      });
     });
   }
   if (u.pathname === '/tizen-apps') {

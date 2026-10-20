@@ -186,6 +186,14 @@ function refresh() {
 function appCard(a) {
   var c = el('div', 'card app');
   c.style.background = 'linear-gradient(135deg, ' + a.color + ' 0%, ' + shade(a.color) + ' 100%)';
+  // The app's own icon, read from the TV by the service (none of it is in this repo).
+  if (a.icon) {
+    var img = el('img', 'app-icon');
+    img.onerror = function () { c.classList.remove('has-icon'); c.removeChild(img); };
+    img.src = SERVICE + a.icon;
+    c.classList.add('has-icon');
+    c.appendChild(img);
+  }
   c.appendChild(el('div', 'app-name', a.name));
   return c;
 }
@@ -521,19 +529,17 @@ function poll() {
 
 // GitHub's raw files are at most 5 minutes old; jsDelivr's @main can be hours behind.
 var VERSION_URL = 'https://raw.githubusercontent.com/ANKA-CORP/anka-tv-module/main/version.json';
-var loadedVersion = null;
+// tools/publish.sh writes the published version here.
+var PAGE_VERSION = '0.34.0';
 
+// The number in "0.34.0": publishes only count up.
+function versionNumber(v) { return parseInt(String(v).split('.')[1], 10) || 0; }
+
+// version.json can be a few minutes behind the code, so only a newer number reloads the page.
 function checkVersion() {
   fetch(VERSION_URL + '?t=' + Date.now()).then(function (r) { return r.ok ? r.json() : null; }).then(function (v) {
-    if (!v) return;
-    if (!loadedVersion) {
-      loadedVersion = v.commit;
-      $('version').textContent = 'v' + v.version;
-      log('version ' + v.version + ' (' + v.commit + ')');
-      return;
-    }
-    if (v.commit !== loadedVersion && !Player.isOpen()) {
-      log('new version ' + v.commit + ', reloading');
+    if (v && versionNumber(v.version) > versionNumber(PAGE_VERSION) && !Player.isOpen()) {
+      log('new version ' + v.version + ', reloading');
       location.reload();
     }
   }).catch(function () {});
@@ -562,6 +568,8 @@ function main() {
   setInterval(reportState, 5000);
   // Only on the TV, where TizenBrew serves the published version (on port 8081).
   if (location.port === '8081') {
+    $('version').textContent = 'v' + PAGE_VERSION;
+    log('version ' + PAGE_VERSION);
     checkVersion();
     setInterval(checkVersion, 3 * 60000);
   } else {

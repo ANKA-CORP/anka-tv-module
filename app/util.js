@@ -172,6 +172,7 @@ var Toast = (function () {
     });
     document.getElementById('boss-time').textContent = two(spawn.getHours()) + ':' + two(spawn.getMinutes());
     document.getElementById('boss-test').style.display = n.test ? '' : 'none';
+    card.classList.toggle('many', n.bosses.length > 2);
     var left = document.getElementById('boss-left');
     var tick = function () {
       var s = Math.max(0, Math.round((n.at - Date.now()) / 1000));

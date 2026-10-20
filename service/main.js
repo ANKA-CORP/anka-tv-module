@@ -34,7 +34,7 @@ var url = require('url');
 // Not 8085: the spike module's service may still hold it until TizenBrew restarts.
 var PORT = Number(process.env.ANKA_PORT) || 8090;   // another port only in tools/test.sh
 // tools/publish.sh writes the published version here.
-var SERVICE_VERSION = '0.57.0 (8441b60)';
+var SERVICE_VERSION = '0.72.0 (280d3e0)';
 var UA = 'Mozilla/5.0 (SMART-TV; Linux; Tizen 6.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/76.0.3809.146 TV Safari/537.36';
 var CACHE_MS = 20000;
 // TizenBrew keeps its own config in /home/owner/share; tools/dev.sh points these elsewhere on the Mac.
@@ -875,6 +875,8 @@ function handle(req, res) {
   // For agents: which of Tizen's APIs the service gets on this TV (and their methods).
   if (u.pathname === '/tizen-probe') {
     var out = { tizen: typeof tizen === 'undefined' ? 'undefined' : Object.keys(tizen), webapis: typeof webapis, apis: {} };
+    // ?ls=/opt/usr/apps/<pkg>/shared/res: what an app ships (icons and the like).
+    if (/^\/(opt\/)?usr\/apps\/[\w.-]+(\/[\w.-]+)*$/.test(u.query.ls || '')) { try { out.ls = fs.readdirSync(u.query.ls); } catch (e) { out.ls = String(e); } }
     if (typeof tizen !== 'undefined') {
       Object.keys(tizen).forEach(function (k) {
         var o = tizen[k];

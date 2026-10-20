@@ -30,7 +30,7 @@ var url = require('url');
 // Not 8085: the spike module's service may still hold it until TizenBrew restarts.
 var PORT = Number(process.env.ANKA_PORT) || 8090;   // another port only in tools/test.sh
 // tools/publish.sh writes the published version here.
-var SERVICE_VERSION = '0.44.0 (a39b116)';
+var SERVICE_VERSION = '0.45.0 (0ec0d4a)';
 var UA = 'Mozilla/5.0 (SMART-TV; Linux; Tizen 6.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/76.0.3809.146 TV Safari/537.36';
 var CACHE_MS = 20000;
 // TizenBrew keeps its own config in /home/owner/share; tools/dev.sh points these elsewhere on the Mac.
@@ -699,6 +699,19 @@ function handle(req, res) {
       if (iconApp && iconApp.web) return webIcon(iconApp.web, send);
       reply(res, 404, 'text/plain', 'no icon');
     });
+  }
+  // For agents: which of Tizen's APIs the service gets on this TV (and their methods).
+  if (u.pathname === '/tizen-probe') {
+    var out = { tizen: typeof tizen === 'undefined' ? 'undefined' : Object.keys(tizen), webapis: typeof webapis, apis: {} };
+    if (typeof tizen !== 'undefined') {
+      Object.keys(tizen).forEach(function (k) {
+        var o = tizen[k];
+        var names = [];
+        try { for (var m in o) names.push(m); } catch (e) { names.push('error: ' + e); }
+        out.apis[k] = names;
+      });
+    }
+    return replyJson(res, out);
   }
   if (u.pathname === '/tizen-apps') {
     return tizenApps(function (err, list) {

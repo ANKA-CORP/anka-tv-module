@@ -17,6 +17,7 @@
 //   GET /                               the web dashboard, for a phone or the Mac: http://<tv ip>:8090/
 //   GET /auth/status, POST /auth/login, POST /auth/logout, POST /auth/set   the dashboard's password (see below)
 //   POST /reload-service                load the newest published version of this file (after tools/publish.sh)
+//   GET /events                         server-sent events for open dashboards: settings, favourites, state, notice
 //   GET /bosses, POST /boss-test        upcoming Black Desert (EU) boss spawns; send the next one's alert now
 var crypto = require('crypto');
 var fs = require('fs');
@@ -29,7 +30,7 @@ var url = require('url');
 // Not 8085: the spike module's service may still hold it until TizenBrew restarts.
 var PORT = Number(process.env.ANKA_PORT) || 8090;   // another port only in tools/test.sh
 // tools/publish.sh writes the published version here.
-var SERVICE_VERSION = '0.43.0 (1293868)';
+var SERVICE_VERSION = '0.44.0 (a39b116)';
 var UA = 'Mozilla/5.0 (SMART-TV; Linux; Tizen 6.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/76.0.3809.146 TV Safari/537.36';
 var CACHE_MS = 20000;
 // TizenBrew keeps its own config in /home/owner/share; tools/dev.sh points these elsewhere on the Mac.
@@ -41,6 +42,30 @@ var logLines = shared.logLines;
 var commands = [];
 var notifications = [];
 var pageState = null;
+
+// ---- live updates for every open dashboard (server-sent events): what one screen changes, the others see at once.
+var listeners = [];
+
+function broadcast(event, data) {
+  var msg = 'event: ' + event + '\ndata: ' + JSON.stringify(data) + '\n\n';
+  listeners.forEach(function (res) { res.write(msg); });
+}
+
+function subscribe(req, res) {
+  res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store', 'Connection': 'keep-alive' });
+  res.write('retry: 3000\n\n');
+  listeners.push(res);
+  req.on('close', function () { listeners.splice(listeners.indexOf(res), 1); });
+}
+
+// Proxies and phones drop quiet connections; a comment every 25 s keeps them open.
+var pingTimer = setInterval(function () { listeners.forEach(function (res) { res.write(': ping\n\n'); }); }, 25000);
+
+// Every notice for the TV page goes through here, so dashboards show it too.
+function notify(n) {
+  notifications.push(n);
+  broadcast('notice', n);
+}
 
 function readData() {
   try { return JSON.parse(fs.readFileSync(DATA_FILE, 'utf8')); } catch (e) { return {}; }
@@ -313,7 +338,7 @@ function queue(req, res, list, parse) {
     return readBody(req, function (b) {
       var item = parse(b);
       if (item === null) return reply(res, 400, 'text/plain', 'bad body');
-      list.push(item);
+      if (list === notifications) notify(item); else list.push(item);
       log('from Mac: ' + b.trim());
       reply(res, 204, 'text/plain', '');
     });
@@ -345,7 +370,7 @@ function checkLive() {
       if (!err) found.push(c);
       if (--left) return;
       newlyLive(wasLive, found).forEach(function (c) {
-        notifications.push({ kind: 'live', title: 'Yayına başladı', text: c.name + (c.title ? ' · ' + c.title : ''),
+        notify({ kind: 'live', title: 'Yayına başladı', text: c.name + (c.title ? ' · ' + c.title : ''),
           avatar: c.avatar, slug: c.slug, sound: true, seconds: 10 });
         log('live alert: ' + c.slug);
       });
@@ -462,7 +487,7 @@ function checkBosses() {
       var key = String(s.at);
       if (s.at - Date.now() > BOSS_ALERT_MS || bossAlerted[key]) return;
       bossAlerted[key] = true;
-      notifications.push(bossNotice(s));
+      notify(bossNotice(s));
       log('boss alert: ' + bossNotice(s).text + ' at ' + new Date(s.at).toISOString().slice(11, 16) + ' UTC');
     });
   });
@@ -591,6 +616,7 @@ function handle(req, res) {
     reply(res, 202, 'text/plain', 'reloading');
     return setTimeout(reloadService, 100);
   }
+  if (u.pathname === '/events') return subscribe(req, res);
   if (u.pathname === '/bosses') {
     return bosses(function (err, spawns) {
       if (err) return fail(res, 'bosses', err);
@@ -600,7 +626,7 @@ function handle(req, res) {
   if (u.pathname === '/boss-test' && req.method === 'POST') {
     return bosses(function (err, spawns) {
       if (err || !spawns.length) return fail(res, 'boss test', err || 'no spawns');
-      notifications.push(bossNotice(spawns[0], true));
+      notify(bossNotice(spawns[0], true));
       replyJson(res, bossNotice(spawns[0], true));
     });
   }
@@ -627,6 +653,7 @@ function handle(req, res) {
         data.favourites = list.filter(function (s) { return typeof s === 'string' && /^[\w-]{1,40}$/.test(s); });
         writeData(data);
         log('favourites: ' + data.favourites.join(', '));
+        broadcast('favourites', data.favourites);
         replyJson(res, { favourites: data.favourites });
       });
     }
@@ -695,6 +722,7 @@ function handle(req, res) {
         data.settings.city = g.city; data.settings.lat = g.lat; data.settings.lon = g.lon;
         writeData(data);
         log('city: ' + g.city);
+        broadcast('settings', data.settings);
         replyJson(res, g);
       });
     });
@@ -714,6 +742,7 @@ function handle(req, res) {
         });
         writeData(data);
         log('settings: ' + JSON.stringify(data.settings));
+        broadcast('settings', data.settings);
         replyJson(res, data.settings);
       });
     }
@@ -722,7 +751,13 @@ function handle(req, res) {
   if (u.pathname === '/state') {
     if (req.method === 'POST') {
       return readBody(req, function (b) {
-        try { pageState = JSON.parse(b); pageState.at = Date.now(); } catch (e) {}
+        try {
+          var before = pageState && JSON.stringify(Object.assign({}, pageState, { at: 0 }));
+          pageState = JSON.parse(b);
+          pageState.at = Date.now();
+          // The page reports every 5 s; dashboards only hear about real changes.
+          if (JSON.stringify(Object.assign({}, pageState, { at: 0 })) !== before) broadcast('state', { state: pageState, ageSeconds: 0 });
+        } catch (e) {}
         reply(res, 204, 'text/plain', '');
       });
     }
@@ -790,6 +825,8 @@ var server = http.createServer(function (req, res) {
 // Called by service.js before it loads a newer version: free the port, drop the page's keep-alive connections.
 exports.stop = function (done) {
   clearInterval(bossTimer);
+  clearInterval(pingTimer);
+  listeners.forEach(function (l) { l.end(); });
   clearInterval(liveTimer);
   server.close(function () { done(); });
   sockets.slice().forEach(function (s) { s.destroy(); });

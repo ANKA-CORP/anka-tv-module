@@ -485,43 +485,45 @@
   }
 
   function refreshState() {
-    getJson('/state').then(function (r) {
-      var s = r.state;
-      var online = s && r.ageSeconds < 15;
-      $('dot').className = 'dot' + (online ? ' on' : '');
-      $('status-text').textContent = online ? 'TV bağlı' : 'TV\'de kapalı';
-      if (s && s.version) $('version').textContent = s.version;
-      var now = $('now');
-      var playing = online && s.screen === 'player';
-      $('greet').textContent = greeting();
-      $('greet-sub').textContent = !online ? 'TV\'de anka tv kapalı' : playing ? 'TV\'de ' + (s.name || s.slug) + ' açık' : 'TV ana ekranda';
-      now.innerHTML = '';
-      $('now-card').className = 'now-card' + (playing ? ' playing' : '');
-      var bg = playing && s.thumb ? 'url("' + s.thumb + '")' : 'none';
-      if ($('now-bg').style.backgroundImage !== bg) $('now-bg').style.backgroundImage = bg;
-      var d = document.createElement('div');
-      d.appendChild(textEl('div', 'label', 'TV\'de şu an'));
-      if (!online) {
-        d.appendChild(textEl('b', '', 'Uygulama kapalı'));
-        d.appendChild(textEl('small', '', 'TizenBrew\'den anka tv\'yi açınca burada görünür.'));
-      } else if (!playing) {
-        d.appendChild(textEl('b', '', 'Ana ekran'));
-        d.appendChild(textEl('small', '', 'Kanallara göz atılıyor'));
-      } else {
-        if (s.avatar) { var img = document.createElement('img'); img.src = s.avatar; now.appendChild(img); }
-        var b = textEl('b', '', s.name || s.slug);
-        b.appendChild(textEl('span', 'pill', 'Canlı'));
-        d.appendChild(b);
-        d.appendChild(textEl('small', '', s.title || ''));
-        if (s.quality) d.appendChild(textEl('span', 'chip', s.quality));
-        if (s.viewers) d.appendChild(textEl('span', 'chip', fmtViewers(s.viewers) + ' izleyici'));
-        if (s.category) d.appendChild(textEl('span', 'chip', s.category));
-      }
-      now.appendChild(d);
-    }).catch(function () {
+    getJson('/state').then(renderState).catch(function () {
       $('dot').className = 'dot';
       $('status-text').textContent = 'servise ulaşılamıyor';
     });
+  }
+
+  function renderState(r) {
+    var s = r.state;
+    var online = s && r.ageSeconds < 15;
+    $('dot').className = 'dot' + (online ? ' on' : '');
+    $('status-text').textContent = online ? 'TV bağlı' : 'TV\'de kapalı';
+    if (s && s.version) $('version').textContent = s.version;
+    var now = $('now');
+    var playing = online && s.screen === 'player';
+    $('greet').textContent = greeting();
+    $('greet-sub').textContent = !online ? 'TV\'de anka tv kapalı' : playing ? 'TV\'de ' + (s.name || s.slug) + ' açık' : 'TV ana ekranda';
+    now.innerHTML = '';
+    $('now-card').className = 'now-card' + (playing ? ' playing' : '');
+    var bg = playing && s.thumb ? 'url("' + s.thumb + '")' : 'none';
+    if ($('now-bg').style.backgroundImage !== bg) $('now-bg').style.backgroundImage = bg;
+    var d = document.createElement('div');
+    d.appendChild(textEl('div', 'label', 'TV\'de şu an'));
+    if (!online) {
+      d.appendChild(textEl('b', '', 'Uygulama kapalı'));
+      d.appendChild(textEl('small', '', 'TizenBrew\'den anka tv\'yi açınca burada görünür.'));
+    } else if (!playing) {
+      d.appendChild(textEl('b', '', 'Ana ekran'));
+      d.appendChild(textEl('small', '', 'Kanallara göz atılıyor'));
+    } else {
+      if (s.avatar) { var img = document.createElement('img'); img.src = s.avatar; now.appendChild(img); }
+      var b = textEl('b', '', s.name || s.slug);
+      b.appendChild(textEl('span', 'pill', 'Canlı'));
+      d.appendChild(b);
+      d.appendChild(textEl('small', '', s.title || ''));
+      if (s.quality) d.appendChild(textEl('span', 'chip', s.quality));
+      if (s.viewers) d.appendChild(textEl('span', 'chip', fmtViewers(s.viewers) + ' izleyici'));
+      if (s.category) d.appendChild(textEl('span', 'chip', s.category));
+    }
+    now.appendChild(d);
   }
 
   // ---- favourites
@@ -829,12 +831,40 @@
     setTimeout(function () { spark.remove(); }, 650);
   });
 
+  // ---- live updates: what any screen (or the TV) changes shows here at once; polling only while the stream is down.
+  var streaming = false;
+
+  function listen() {
+    if (!window.EventSource) return;
+    var es = new EventSource('/events');
+    es.onopen = function () { streaming = true; };
+    es.onerror = function () { streaming = false; };
+    es.addEventListener('state', function (e) { renderState(JSON.parse(e.data)); });
+    es.addEventListener('settings', function (e) {
+      settings = JSON.parse(e.data) || {};
+      renderThemes();
+      renderToggles();
+      if (settings.city && document.activeElement !== $('city')) $('city').value = settings.city;
+      var t = THEMES.filter(function (x) { return x.id === (settings.theme || 'sunset'); })[0];
+      if (t) window.dispatchEvent(new CustomEvent('anka:theme', { detail: t.accent }));
+    });
+    es.addEventListener('favourites', function () { loadFavourites().catch(function () {}); });
+    es.addEventListener('notice', function (e) {
+      var n = JSON.parse(e.data);
+      if (n.kind === 'live') { toast('🔴 ' + n.text); loadFavourites().catch(function () {}); }
+      else if (n.kind === 'boss' && !n.test) toast('⚔ Boss ' + hm(n.at) + ': ' + n.text);
+    });
+  }
+
   function startApp() {
     refreshState();
     loadSettings();
     loadFavourites().catch(function (e) { toast('Favoriler yüklenemedi: ' + e.message, true); });
     loadBosses();
-    setInterval(function () { if (!$('app').hidden) refreshState(); }, 3000);
+    listen();
+    // The stream only says when something changes; a quiet look every 12 s still notices the TV app closing.
+    var ticks = 0;
+    setInterval(function () { if (!$('app').hidden && (!streaming || ++ticks % 4 === 0)) refreshState(); }, 3000);
     setInterval(refreshLog, 3000);
     setInterval(renderBossNext, 1000);
     setInterval(loadBosses, 60000);

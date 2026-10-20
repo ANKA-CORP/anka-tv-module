@@ -92,6 +92,10 @@
   .theme .swatch u { position: absolute; left: 10px; top: 12px; width: 30px; height: 6px; border-radius: 3px; }
   .theme .swatch s { position: absolute; right: 10px; bottom: 10px; width: 22px; height: 26px; border-radius: 6px; opacity: .6; }
   .theme span { display: block; padding: 8px 10px; font-size: 13px; font-weight: 600; }
+  .motion { display: flex; align-items: center; gap: 8px; margin-top: 16px; }
+  .motion span { flex: 1; color: var(--muted); }
+  .motion button { min-width: 72px; }
+  .motion button.on { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 700; }
   .check { display: flex; align-items: center; gap: 8px; margin: 10px 0; color: var(--muted); }
   .check input { width: 20px; height: 20px; accent-color: var(--accent); }
   details summary { cursor: pointer; font-family: var(--display); font-size: 22px; font-weight: 700; letter-spacing: -.3px; }
@@ -200,7 +204,11 @@
   <section>
     <h2>Tema</h2>
     <div class="themes" id="themes"></div>
-    <div class="hint">TV birkaç saniye içinde yeni temaya geçer.</div>
+    <div class="motion" role="group" aria-labelledby="motion-label">
+      <span id="motion-label">TV'de hareket</span>
+      <button type="button" data-motion="full">Tam</button><button type="button" data-motion="reduced">Sade</button>
+    </div>
+    <div class="hint">TV birkaç saniye içinde değişir. TV kasarsa hareketi "Sade" yap.</div>
   </section>
 
   <section>
@@ -462,9 +470,26 @@
     });
   }
 
+  function renderMotion() {
+    Array.prototype.forEach.call(document.querySelectorAll('[data-motion]'), function (b) {
+      b.classList.toggle('on', b.dataset.motion === (settings.motion || 'full'));
+    });
+  }
+  Array.prototype.forEach.call(document.querySelectorAll('[data-motion]'), function (b) {
+    b.addEventListener('click', function () {
+      settings.motion = b.dataset.motion;
+      renderMotion();
+      post('/settings', { motion: settings.motion })
+        .then(function () { return post('/cmd', 'refresh'); })
+        .then(function () { toast(settings.motion === 'full' ? 'TV\'de hareket açık' : 'TV\'de hareket sade'); })
+        .catch(function (e) { toast('Kaydedilemedi: ' + e.message, true); });
+    });
+  });
+
   getJson('/settings').then(function (s) {
     settings = s || {};
     renderThemes();
+    renderMotion();
     var t = THEMES.filter(function (x) { return x.id === (settings.theme || 'sunset'); })[0];
     if (t) window.dispatchEvent(new CustomEvent('anka:theme', { detail: t.accent }));
   }).catch(function () { renderThemes(); });

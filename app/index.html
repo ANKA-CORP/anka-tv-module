@@ -49,9 +49,11 @@
   #date { font-size: 21px; color: var(--muted); }
 
   /* Hero: the focused stream */
-  #hero { position: absolute; left: 0; top: 0; width: 1920px; height: 640px; }
+  #hero { position: absolute; left: 0; top: 0; width: 1920px; height: 640px; overflow: hidden; }
   .hero-bg { position: absolute; right: 0; top: 0; width: 1140px; height: 640px; background-size: cover; background-position: center; opacity: 0; transition: opacity .4s ease; will-change: opacity; }
-  .hero-bg.on { opacity: 1; }
+  .hero-bg.on { opacity: 1; animation: drift 26s ease-in-out infinite alternate; }
+  /* The stream picture drifts slowly towards you, like a camera on a crane. */
+  @keyframes drift { from { transform: scale(1.02); } to { transform: scale(1.1) translate(-1.5%, 1%); } }
   #hero-fade { position: absolute; left: 0; top: 0; width: 1920px; height: 640px;
     background: linear-gradient(90deg, var(--bg) 0%, var(--bg) 38%, rgba(var(--bg-rgb),.85) 50%, rgba(var(--bg-rgb),0) 75%),
                 linear-gradient(0deg, var(--bg) 0%, rgba(var(--bg-rgb),0) 40%),
@@ -59,6 +61,24 @@
                 radial-gradient(ellipse 700px 380px at 100% 0%, rgba(var(--bg-rgb),.9) 0%, rgba(var(--bg-rgb),0) 100%); }
   #topbar { text-shadow: 0 2px 12px rgba(0,0,0,.55); }
   #hero-info { position: absolute; left: 96px; top: 168px; width: 900px; }
+  /* On every focus change the hero's lines arrive one after another. */
+  #hero-info.enter > * { animation: arrive .45s cubic-bezier(.2,.8,.2,1) both; }
+  #hero-info.enter > :nth-child(2) { animation-delay: .04s; }
+  #hero-info.enter > :nth-child(3) { animation-delay: .08s; }
+  #hero-info.enter > :nth-child(4) { animation-delay: .12s; }
+  @keyframes arrive { from { opacity: 0; transform: translateY(18px); } to { opacity: 1; transform: none; } }
+
+  /* Embers drifting up through the hero: a handful of composited dots, transform and opacity only. */
+  #embers-layer { position: absolute; left: 0; top: 0; width: 1920px; height: 640px; overflow: hidden; pointer-events: none; }
+  .ember { position: absolute; bottom: -20px; width: 6px; height: 6px; border-radius: 50%; background: var(--accent);
+    box-shadow: 0 0 10px 2px var(--accent); opacity: 0; will-change: transform, opacity;
+    animation: ember var(--d) linear var(--delay) infinite; }
+  @keyframes ember {
+    0% { transform: translate(0, 0) scale(1); opacity: 0; }
+    10% { opacity: .9; }
+    60% { opacity: .55; }
+    100% { transform: translate(var(--sway), -700px) scale(.3); opacity: 0; }
+  }
   #hero-tags { display: flex; align-items: center; height: 36px; margin-bottom: 18px; font-size: 25px; color: var(--muted); }
   /* State as a dot and a word, the way broadcast TV marks "live"; no badges. */
   .pill { display: inline-flex; align-items: center; font-weight: 700; margin-right: 22px; }
@@ -106,7 +126,10 @@
   .card.app .app-name { font-family: var(--display); font-size: 36px; font-weight: 800; color: #fff; letter-spacing: -.5px; }
   .card.hint .label { white-space: normal; text-align: center; top: 60px; bottom: auto; color: var(--muted); font-weight: 600; }
   .card.focused { transform: scale(1.07); z-index: 2; }
-  .card.focused::after { opacity: 1; }
+  .card.focused::after { opacity: 1; animation: breathe 2.6s ease-in-out .4s infinite; }
+  @keyframes breathe { 50% { opacity: .55; } }
+  /* First load: the cards rise into place one after another. */
+  .card.arrive { animation: arrive .5s cubic-bezier(.2,.8,.2,1) calc(var(--i) * 45ms + 120ms) both; }
   .skeleton { background: linear-gradient(90deg, #17171d 0%, #22222a 50%, #17171d 100%); background-size: 200% 100%; animation: shimmer 1.4s infinite linear; }
   @keyframes shimmer { from { background-position: 100% 0; } to { background-position: -100% 0; } }
 
@@ -122,8 +145,9 @@
   @keyframes spin { to { transform: rotate(360deg); } }
   #player-msg { position: absolute; left: 0; right: 0; top: 600px; text-align: center; font-size: 30px; color: #ddd; }
   #osd { position: absolute; left: 0; right: 0; bottom: 0; height: 400px; padding: 0 96px; box-sizing: border-box;
-    background: linear-gradient(0deg, rgba(0,0,0,.96) 0%, rgba(0,0,0,.88) 50%, rgba(0,0,0,0) 100%); opacity: 0; transition: opacity .25s ease; }
-  #osd.on { opacity: 1; }
+    background: linear-gradient(0deg, rgba(0,0,0,.96) 0%, rgba(0,0,0,.88) 50%, rgba(0,0,0,0) 100%); opacity: 0;
+    transform: translateY(60px); transition: opacity .3s ease, transform .4s cubic-bezier(.2,.9,.3,1); }
+  #osd.on { opacity: 1; transform: none; }
   #osd-main { position: absolute; left: 96px; right: 520px; bottom: 96px; }
   #osd-name { display: flex; align-items: center; font-family: var(--display); font-size: 54px; font-weight: 800; letter-spacing: -1px; margin-bottom: 12px; }
   #osd-name img { width: 64px; height: 64px; border-radius: 50%; margin-right: 18px; object-fit: cover; background: var(--card); }
@@ -170,7 +194,10 @@
   #splash-word { font-family: var(--display); font-size: 72px; font-weight: 800; letter-spacing: -2px; margin-top: 10px; }
   #splash-word span { font-weight: 500; color: var(--muted); margin-left: 4px; }
   @keyframes rise { from { opacity: 0; transform: translateY(48px) scale(.94); } to { opacity: 1; transform: none; } }
-  @media (prefers-reduced-motion: reduce) { #splash-mark, #hero-tags .pill.live::before { animation: none; } }
+  /* "Sade" motion (dashboard setting) or the system's reduced motion: everything holds still. */
+  :root[data-motion="reduced"] *, :root[data-motion="reduced"] *::before, :root[data-motion="reduced"] *::after { animation: none !important; }
+  :root[data-motion="reduced"] #embers-layer { display: none; }
+  @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; } #embers-layer { display: none; } }
 </style>
 </head>
 <body>
@@ -179,6 +206,7 @@
     <div class="hero-bg" id="hero-bg-a"></div>
     <div class="hero-bg" id="hero-bg-b"></div>
     <div id="hero-fade"></div>
+    <div id="embers-layer"></div>
     <div id="hero-info">
       <div id="hero-tags"></div>
       <div id="hero-name"></div>
@@ -213,9 +241,9 @@
   <div id="splash"><canvas id="embers" width="960" height="540"></canvas><div id="splash-mark"><svg id="splash-logo" viewBox="0 0 120 120" aria-hidden="true"><g fill="currentColor"><path d="M46 96 C 24 92, 8 74, 4 40 C 12 52, 18 58, 24 60 C 18 50, 16 38, 18 26 C 24 40, 30 50, 36 54 C 32 44, 32 34, 36 22 C 40 38, 44 48, 46 56 Z" opacity=".8"/><path d="M74 96 C 96 92, 112 74, 116 40 C 108 52, 102 58, 96 60 C 102 50, 104 38, 102 26 C 96 40, 90 50, 84 54 C 88 44, 88 34, 84 22 C 80 38, 76 48, 74 56 Z" opacity=".8"/><path d="M60 4 C 64 16, 72 26, 78 38 C 84 50, 86 60, 86 70 C 86 90, 74 104, 60 104 C 46 104, 34 90, 34 70 C 34 56, 40 46, 46 40 C 46 48, 49 54, 54 56 C 52 40, 54 22, 60 4 Z"/></g><path d="M52 62 L72 73 L52 84 Z" fill="var(--bg)" stroke="var(--bg)" stroke-width="4" stroke-linejoin="round"/></svg><div id="splash-word">anka<span>tv</span></div></div></div>
 </div>
 <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.17/dist/hls.min.js"></script>
-<script src="util.js?v=0870a4e"></script>
-<script src="splash.js?v=0870a4e"></script>
-<script src="player.js?v=0870a4e"></script>
-<script src="app.js?v=0870a4e"></script>
+<script src="util.js?v=97430fb"></script>
+<script src="splash.js?v=97430fb"></script>
+<script src="player.js?v=97430fb"></script>
+<script src="app.js?v=97430fb"></script>
 </body>
 </html>

@@ -110,6 +110,8 @@ function loadSettings() {
       document.documentElement.dataset.theme = theme;
       log('theme ' + theme);
     }
+    // "Sade" in the dashboard stops all motion if the TV ever struggles.
+    document.documentElement.dataset.motion = s.motion === 'reduced' ? 'reduced' : 'full';
   }).catch(function (e) { log('settings not loaded: ' + e); });
 }
 
@@ -230,12 +232,35 @@ function render() {
     r.el.appendChild(title);
     r.track = el('div', 'track');
     if (!r.items.length) r.track.appendChild(r.id === 'fav' ? hintCard() : el('div', 'card skeleton'));
-    r.items.forEach(function (s) { r.track.appendChild(card(s, r)); });
+    r.items.forEach(function (s, i) {
+      var c = card(s, r);
+      // Only on the first fill: the visible cards rise into place one after another.
+      if (!rendered && i < 7) { c.classList.add('arrive'); c.style.setProperty('--i', i + rows.indexOf(r) * 3); }
+      r.track.appendChild(c);
+    });
     r.el.appendChild(r.track);
     inner.appendChild(r.el);
   });
+  rendered = true;
   if (focusRow >= rows.length) focusRow = 0;
   updateFocus(true);
+}
+
+var rendered = false;
+
+// A dozen embers drifting up through the hero, each with its own pace, delay and sway.
+function makeEmbers() {
+  var layer = $('embers-layer');
+  for (var i = 0; i < 14; i++) {
+    var e = el('span', 'ember');
+    var size = 3 + Math.random() * 5;
+    e.style.left = (900 + Math.random() * 980) + 'px';
+    e.style.width = e.style.height = size + 'px';
+    e.style.setProperty('--d', (9 + Math.random() * 9).toFixed(1) + 's');
+    e.style.setProperty('--delay', (-Math.random() * 15).toFixed(1) + 's');
+    e.style.setProperty('--sway', ((Math.random() - 0.5) * 160).toFixed(0) + 'px');
+    layer.appendChild(e);
+  }
 }
 
 function renderSkeleton() {
@@ -284,7 +309,17 @@ function updateFocus(instant) {
   heroTimer = setTimeout(function () { renderHeroImage(s); }, instant ? 0 : 250);
 }
 
+var heroTextKey = null;
+
 function renderHeroText(s) {
+  // Replay the arrival only when the focused item really changes, not on a background refresh.
+  if (s.key !== heroTextKey) {
+    heroTextKey = s.key;
+    var info = $('hero-info');
+    info.classList.remove('enter');
+    void info.offsetWidth;
+    info.classList.add('enter');
+  }
   if (s.kind === 'app') return renderAppHero(s);
   var tags = $('hero-tags');
   tags.innerHTML = '';
@@ -505,6 +540,7 @@ function main() {
   loadWeather();
   setInterval(loadWeather, 15 * 60000);
   Splash.begin();
+  makeEmbers();
   // At most 6 s of splash, even if Kick is slow; the rows show their own placeholders.
   setTimeout(Splash.end, 6000);
   Player.init();

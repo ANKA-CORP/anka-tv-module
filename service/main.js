@@ -30,7 +30,7 @@ var url = require('url');
 // Not 8085: the spike module's service may still hold it until TizenBrew restarts.
 var PORT = Number(process.env.ANKA_PORT) || 8090;   // another port only in tools/test.sh
 // tools/publish.sh writes the published version here.
-var SERVICE_VERSION = '0.45.0 (0ec0d4a)';
+var SERVICE_VERSION = '0.46.0 (68d183a)';
 var UA = 'Mozilla/5.0 (SMART-TV; Linux; Tizen 6.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/76.0.3809.146 TV Safari/537.36';
 var CACHE_MS = 20000;
 // TizenBrew keeps its own config in /home/owner/share; tools/dev.sh points these elsewhere on the Mac.
@@ -710,6 +710,22 @@ function handle(req, res) {
         try { for (var m in o) names.push(m); } catch (e) { names.push('error: ' + e); }
         out.apis[k] = names;
       });
+    }
+    if (typeof webapis !== 'undefined') {
+      out.webapisApis = {};
+      Object.keys(webapis).forEach(function (k) {
+        var names = [];
+        try { for (var m in webapis[k]) names.push(m); } catch (e) { names.push('error: ' + e); }
+        out.webapisApis[k] = names.slice(0, 40);
+      });
+    }
+    // ?notify=1: try a system notification, shown over any app.
+    if (u.query.notify && typeof tizen !== 'undefined') {
+      try {
+        var note = new tizen.UserNotification('SIMPLE', 'anka tv', { content: 'Sistem bildirimi denemesi' });
+        tizen.notification.post(note);
+        out.notify = 'posted';
+      } catch (e) { out.notify = 'failed: ' + e.name + ' ' + e.message; }
     }
     return replyJson(res, out);
   }

@@ -7,6 +7,13 @@
 //   POST /log, GET /log                 page log lines (readable from the Mac: http://<tv ip>:8090/log)
 //   POST /cmd, GET /cmd                 a command for the page, e.g. "play zeitnot" (the Mac can drive the app)
 //   POST /notify, GET /notify           a toast for the page: JSON {"text": "...", "sound": true}
+//   GET /favourites, POST /favourites   the favourite slugs (JSON array), saved on the TV; shared by the page and the dashboard
+//   GET /settings, POST /settings       app settings (JSON object, merged), e.g. {"theme": "ocean"}
+//   GET /apps, POST /launch?id=X        installed TV apps from a known list, and launching one
+//   GET /weather, POST /city            current weather for the saved city; POST a city name to set it
+//   POST /state, GET /state             what the page shows now (grid or player, channel, quality, version)
+//   GET /                               the web dashboard, for a phone or the Mac: http://<tv ip>:8090/
+var fs = require('fs');
 var http = require('http');
 var https = require('https');
 var url = require('url');
@@ -15,10 +22,96 @@ var url = require('url');
 var PORT = 8090;
 var UA = 'Mozilla/5.0 (SMART-TV; Linux; Tizen 6.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/76.0.3809.146 TV Safari/537.36';
 var CACHE_MS = 20000;
+// TizenBrew keeps its own config in /home/owner/share; tools/dev.sh points these elsewhere on the Mac.
+var DATA_FILE = (process.env.ANKA_DATA_DIR || '/home/owner/share') + '/anka-tv.json';
+var DASHBOARD_URL = 'https://cdn.jsdelivr.net/gh/ANKA-CORP/anka-tv-module@main/dashboard/index.html';
 var cache = {};
 var logLines = [];
 var commands = [];
 var notifications = [];
+var pageState = null;
+
+function readData() {
+  try { return JSON.parse(fs.readFileSync(DATA_FILE, 'utf8')); } catch (e) { return {}; }
+}
+
+function writeData(data) {
+  try { fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2)); } catch (e) { log('service: saving ' + DATA_FILE + ' failed: ' + e); }
+}
+
+// Well-known Samsung app IDs; /apps keeps those installed on this TV. Colours are for our own tiles.
+var APP_CATALOGUE = [
+  { id: '111299001912', name: 'YouTube', color: '#ff0033' },
+  { id: '3201907018807', name: 'Netflix', color: '#e50914' },
+  { id: '3201910019365', name: 'Prime Video', color: '#1a98ff' },
+  { id: '3201901017640', name: 'Disney+', color: '#113ccf' },
+  { id: '3201807016597', name: 'Apple TV', color: '#3a3a3c' },
+  { id: '3201606009684', name: 'Spotify', color: '#1db954' },
+  { id: '3202010022079', name: 'İnternet', color: '#5b5bd6' }
+];
+// The TV's own app API; on the Mac (tools/dev.sh) it's unset and launching only logs.
+var TV_API = process.env.ANKA_DEV_DIR ? null : 'http://127.0.0.1:8001/api/v2/applications/';
+
+function tvApi(method, id, cb) {
+  var req = http.request(TV_API + id, { method: method }, function (res) {
+    var body = '';
+    res.on('data', function (c) { body += c; });
+    res.on('end', function () { cb(null, res.statusCode, body); });
+  });
+  req.on('error', function (e) { cb(e); });
+  req.end();
+}
+
+function installedApps(cb) {
+  if (!TV_API) return cb(APP_CATALOGUE);
+  var hit = cache.apps;
+  if (hit && Date.now() - hit.at < 600000) return cb(hit.data);
+  var found = [];
+  var left = APP_CATALOGUE.length;
+  APP_CATALOGUE.forEach(function (app, i) {
+    tvApi('GET', app.id, function (err, status) {
+      if (!err && status === 200) found[i] = app;
+      if (--left === 0) {
+        var list = found.filter(function (a) { return a; });
+        cache.apps = { at: Date.now(), data: list };
+        cb(list);
+      }
+    });
+  });
+}
+
+// Weather from Open-Meteo (no key) for the city saved in settings (lat/lon from its geocoder).
+function weather(cb) {
+  var s = readData().settings || {};
+  if (typeof s.lat !== 'number' || typeof s.lon !== 'number') return cb(null, null);
+  getJson('https://api.open-meteo.com/v1/forecast?latitude=' + s.lat + '&longitude=' + s.lon +
+    '&current=temperature_2m,weather_code,is_day&timezone=auto', function (err, w) {
+    if (err) return cb(err);
+    cb(null, { city: s.city, temp: Math.round(w.current.temperature_2m), code: w.current.weather_code, day: w.current.is_day === 1 });
+  });
+}
+
+function geocode(name, cb) {
+  getJson('https://geocoding-api.open-meteo.com/v1/search?count=1&language=tr&name=' + encodeURIComponent(name), function (err, r) {
+    if (err) return cb(err);
+    var g = r.results && r.results[0];
+    cb(null, g ? { city: g.name, lat: g.latitude, lon: g.longitude } : null);
+  });
+}
+
+// On the TV the dashboard comes from the published module; on the Mac from the working copy.
+function dashboardHtml(cb) {
+  if (process.env.ANKA_DEV_DIR) {
+    return fs.readFile(process.env.ANKA_DEV_DIR + '/dashboard/index.html', 'utf8', cb);
+  }
+  var hit = cache[DASHBOARD_URL];
+  if (hit && Date.now() - hit.at < 60000) return cb(null, hit.data);
+  get(DASHBOARD_URL, function (err, body, status) {
+    if (err || status !== 200) return cb(err || new Error('HTTP ' + status));
+    cache[DASHBOARD_URL] = { at: Date.now(), data: body };
+    cb(null, body);
+  });
+}
 
 function get(target, cb) {
   https.get(target, { headers: { 'User-Agent': UA, 'Accept': 'application/json' } }, function (res) {
@@ -144,6 +237,89 @@ http.createServer(function (req, res) {
   if (u.pathname === '/log') {
     if (req.method === 'POST') return readBody(req, function (b) { log(b); reply(res, 204, 'text/plain', ''); });
     return reply(res, 200, 'text/plain', logLines.join('\n') + '\n');
+  }
+  if (u.pathname === '/' || u.pathname === '/dashboard') {
+    return dashboardHtml(function (err, html) {
+      if (err) return fail(res, 'dashboard', err);
+      reply(res, 200, 'text/html; charset=utf-8', html);
+    });
+  }
+  if (u.pathname === '/favourites') {
+    if (req.method === 'POST') {
+      return readBody(req, function (b) {
+        var list;
+        try { list = JSON.parse(b); } catch (e) { list = null; }
+        if (!Array.isArray(list)) return reply(res, 400, 'text/plain', 'expected a JSON array of slugs');
+        var data = readData();
+        data.favourites = list.filter(function (s) { return typeof s === 'string' && /^[\w-]{1,40}$/.test(s); });
+        writeData(data);
+        log('favourites: ' + data.favourites.join(', '));
+        replyJson(res, { favourites: data.favourites });
+      });
+    }
+    // null until the first save, so the page can seed it from what it had before.
+    var saved = readData().favourites;
+    return replyJson(res, { favourites: Array.isArray(saved) ? saved : null });
+  }
+  if (u.pathname === '/apps') return installedApps(function (list) { replyJson(res, list); });
+  if (u.pathname === '/launch' && req.method === 'POST') {
+    var app = APP_CATALOGUE.filter(function (a) { return a.id === u.query.id; })[0];
+    if (!app) return reply(res, 400, 'text/plain', 'unknown app');
+    log('launch ' + app.name);
+    if (!TV_API) return replyJson(res, { launched: false, dev: true });
+    return tvApi('POST', app.id, function (err, status) {
+      if (err || status !== 200) return fail(res, 'launch ' + app.name, err || status);
+      replyJson(res, { launched: true });
+    });
+  }
+  if (u.pathname === '/weather') {
+    return weather(function (err, w) {
+      if (err) return fail(res, 'weather', err);
+      replyJson(res, w);
+    });
+  }
+  if (u.pathname === '/city' && req.method === 'POST') {
+    return readBody(req, function (b) {
+      geocode(b.trim(), function (err, g) {
+        if (err) return fail(res, 'geocode', err);
+        if (!g) return reply(res, 404, 'text/plain', 'city not found');
+        var data = readData();
+        data.settings = data.settings || {};
+        data.settings.city = g.city; data.settings.lat = g.lat; data.settings.lon = g.lon;
+        writeData(data);
+        log('city: ' + g.city);
+        replyJson(res, g);
+      });
+    });
+  }
+  if (u.pathname === '/settings') {
+    if (req.method === 'POST') {
+      return readBody(req, function (b) {
+        var patch;
+        try { patch = JSON.parse(b); } catch (e) { patch = null; }
+        if (!patch || typeof patch !== 'object' || Array.isArray(patch)) return reply(res, 400, 'text/plain', 'expected a JSON object');
+        var data = readData();
+        data.settings = data.settings || {};
+        Object.keys(patch).forEach(function (k) {
+          // Settings are flat: short strings, numbers or booleans.
+          var v = patch[k];
+          if (/^\w{1,30}$/.test(k) && (typeof v === 'boolean' || typeof v === 'number' || (typeof v === 'string' && v.length <= 60))) data.settings[k] = v;
+        });
+        writeData(data);
+        log('settings: ' + JSON.stringify(data.settings));
+        replyJson(res, data.settings);
+      });
+    }
+    return replyJson(res, readData().settings || {});
+  }
+  if (u.pathname === '/state') {
+    if (req.method === 'POST') {
+      return readBody(req, function (b) {
+        try { pageState = JSON.parse(b); pageState.at = Date.now(); } catch (e) {}
+        reply(res, 204, 'text/plain', '');
+      });
+    }
+    return replyJson(res, pageState ? { state: pageState, ageSeconds: Math.round((Date.now() - pageState.at) / 1000) } : { state: null });
   }
   if (u.pathname === '/cmd') return queue(req, res, commands, function (b) { return b.trim() || null; });
   if (u.pathname === '/notify') {

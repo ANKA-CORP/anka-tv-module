@@ -12,6 +12,7 @@ var Player = (function () {
   var osdTimer = null, flashTimer = null, watchdog = null;
   var lastTime = 0, lastProgressAt = 0, loadedAt = 0;
   var retries = 0, mediaRecoveries = 0, reloadTimer = null;
+  var changed = function () {};   // set by the app: called when the channel, quality or open state changes
 
   function $(id) { return document.getElementById(id); }
 
@@ -21,6 +22,7 @@ var Player = (function () {
       spinner.classList.remove('on');
       msg.textContent = '';
       log('player: playing ' + current().slug + ' (' + qualityLabel() + ')');
+      changed();
     });
     video.addEventListener('waiting', function () { spinner.classList.add('on'); });
   }
@@ -41,6 +43,7 @@ var Player = (function () {
     root.classList.remove('open');
     osd.classList.remove('on');
     if (onClose) onClose(current());
+    changed();
   }
 
   function stop() {
@@ -78,7 +81,7 @@ var Player = (function () {
       if (levelChoice >= 0) hls.currentLevel = levelChoice;
       video.play().catch(function (e) { log('player: play() ' + e); });
     });
-    hls.on(Hls.Events.LEVEL_SWITCHED, function () { renderQuality(); });
+    hls.on(Hls.Events.LEVEL_SWITCHED, function () { renderQuality(); changed(); });
     hls.on(Hls.Events.ERROR, function (e, d) {
       if (!d.fatal) return;
       log('player: fatal ' + d.type + ' ' + d.details + (d.response ? ' http ' + d.response.code : ''));
@@ -190,6 +193,7 @@ var Player = (function () {
     log('player: quality ' + (lvl < 0 ? 'auto' : levelName(hls.levels[lvl])));
     closePanel();
     showOsd(3000);
+    changed();
   }
 
   function handlePanelKey(name) {
@@ -255,5 +259,9 @@ var Player = (function () {
     else if (name === 'PLAY_PAUSE') togglePause();
   }
 
-  return { init: init, open: open, close: close, isOpen: isOpen, handleKey: handleKey, current: current };
+  return {
+    init: init, open: open, close: close, isOpen: isOpen, handleKey: handleKey, current: current,
+    quality: qualityLabel,
+    onChange: function (cb) { changed = cb; }
+  };
 })();

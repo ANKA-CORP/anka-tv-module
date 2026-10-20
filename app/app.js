@@ -1,37 +1,62 @@
-// The grid: a hero for the focused stream, rows of cards, remote navigation, favourites and refresh.
+// The home screen: a hero for the focused item, rows of apps and Kick streams, remote navigation,
+// favourites, weather and refresh.
 'use strict';
 
 var DEFAULT_FAVOURITES = ['zeitnot', 'nuriben'];
 var REFRESH_MS = 60000;
-var VISIBLE_CARDS = 4;     // cards fully on screen; a fifth peeks in
-var CARD_STEP = 416;       // card width + margin
-var ROW_HEIGHT = 360;
 var LONG_PRESS_MS = 650;
+// Per row kind: cards fully on screen (one more peeks in), card width + margin, row height.
+var LAYOUT = {
+  apps: { visible: 5, step: 320, height: 290 },
+  streams: { visible: 4, step: 416, height: 360 }
+};
 
-var rows = [];             // [{ id, title, items: [stream], col, first, el, track }]
+var rows = [];             // [{ id, kind, title, items, col, first, el, track }]
 var focusRow = 0;
 var heroSlug = null, heroTimer = null, heroLayer = 0;
 
 function $(id) { return document.getElementById(id); }
 
-// Favourites live on the TV (localStorage); long-press OK on a card toggles one.
+// Favourites are saved by the service on the TV, so the dashboard edits the same list.
+// Long-press OK on a card toggles one.
 var Favourites = {
-  list: function () {
-    try {
-      var saved = JSON.parse(localStorage.getItem('favourites'));
-      if (Array.isArray(saved)) return saved;
-    } catch (e) {}
-    return DEFAULT_FAVOURITES.slice();
+  slugs: DEFAULT_FAVOURITES.slice(),
+  load: function () {
+    var self = this;
+    return api('/favourites').then(function (r) {
+      if (r.favourites) { self.slugs = r.favourites; return; }
+      // First run with the service: keep what earlier versions kept in localStorage.
+      try {
+        var old = JSON.parse(localStorage.getItem('favourites'));
+        if (Array.isArray(old)) self.slugs = old;
+      } catch (e) {}
+      return self.save();
+    }).catch(function (e) { log('favourites not loaded: ' + e); });
   },
-  has: function (slug) { return this.list().indexOf(slug) >= 0; },
+  save: function () {
+    return fetch(SERVICE + '/favourites', { method: 'POST', body: JSON.stringify(this.slugs) })
+      .catch(function (e) { log('favourites not saved: ' + e); });
+  },
+  list: function () { return this.slugs.slice(); },
+  has: function (slug) { return this.slugs.indexOf(slug) >= 0; },
   toggle: function (slug) {
-    var l = this.list();
-    var i = l.indexOf(slug);
-    if (i >= 0) l.splice(i, 1); else l.push(slug);
-    try { localStorage.setItem('favourites', JSON.stringify(l)); } catch (e) { log('favourites not saved: ' + e); }
+    var i = this.slugs.indexOf(slug);
+    if (i >= 0) this.slugs.splice(i, 1); else this.slugs.push(slug);
+    this.save();
     return i < 0;
   }
 };
+
+// Tells the service (and so the dashboard) what's on screen.
+function reportState() {
+  var s = Player.isOpen() ? Player.current() : null;
+  var state = { screen: s ? 'player' : 'grid', version: $('version').textContent };
+  if (s) {
+    state.slug = s.slug; state.name = s.name; state.title = s.title; state.avatar = s.avatar;
+    state.thumb = s.thumb; state.viewers = s.viewers; state.category = s.category; state.quality = Player.quality();
+  }
+  fetch(SERVICE + '/state', { method: 'POST', body: JSON.stringify(state) }).catch(function () {});
+}
 
 function fitStage() {
   var s = Math.min(window.innerWidth / 1920, window.innerHeight / 1080);
@@ -41,42 +66,101 @@ function fitStage() {
 function tickClock() {
   var d = new Date();
   $('clock').textContent = ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2);
+  $('date').textContent = d.toLocaleDateString('tr-TR', { weekday: 'long', day: 'numeric', month: 'long' });
+}
+
+// WMO weather codes (Open-Meteo) in a few Turkish words.
+function weatherText(code) {
+  if (code === 0) return 'Açık';
+  if (code <= 2) return 'Parçalı bulutlu';
+  if (code === 3) return 'Bulutlu';
+  if (code <= 48) return 'Sisli';
+  if (code <= 57) return 'Çisenti';
+  if (code <= 67) return 'Yağmurlu';
+  if (code <= 77) return 'Karlı';
+  if (code <= 82) return 'Sağanak';
+  if (code <= 86) return 'Kar sağanağı';
+  return 'Fırtına';
+}
+
+function loadWeather() {
+  api('/weather').then(function (w) {
+    var box = $('weather');
+    box.innerHTML = '';
+    if (!w) return;   // no city set yet: the dashboard sets one
+    box.appendChild(el('b', '', w.temp + '°'));
+    box.appendChild(document.createTextNode(weatherText(w.code) + ' · ' + w.city));
+  }).catch(function (e) { log('weather not loaded: ' + e); });
 }
 
 // ---- data
 
 function loadRows() {
+  // Reload favourites and settings each time: the dashboard may have changed them.
+  return Promise.all([Favourites.load(), loadSettings()]).then(loadRowsFor);
+}
+
+var THEMES = ['night', 'ocean', 'sunset', 'lavender', 'oled'];
+var DEFAULT_THEME = 'sunset';
+
+function loadSettings() {
+  return api('/settings').then(function (s) {
+    var theme = THEMES.indexOf(s.theme) >= 0 ? s.theme : DEFAULT_THEME;
+    if (document.documentElement.dataset.theme !== theme) {
+      document.documentElement.dataset.theme = theme;
+      log('theme ' + theme);
+    }
+  }).catch(function (e) { log('settings not loaded: ' + e); });
+}
+
+function loadRowsFor() {
   var favs = Favourites.list();
   return Promise.all([
+    api('/apps').catch(function (e) { log('apps not loaded: ' + e); return []; }),
     favs.length ? api('/channels?slugs=' + favs.map(encodeURIComponent).join(',')) : Promise.resolve([]),
     api('/streams?language=tr&limit=30'),
     api('/streams?limit=30')
   ]).then(function (r) {
-    var favItems = r[0].slice().sort(function (a, b) { return (b.live - a.live) || (b.viewers - a.viewers); });
-    return [
-      { id: 'fav', title: 'Favoriler', note: favItems.filter(function (s) { return s.live; }).length + ' canlı', items: favItems },
-      { id: 'tr', title: 'Türkçe canlı yayınlar', items: r[1] },
-      { id: 'all', title: "Kick'te en çok izlenenler", items: r[2] }
-    ];
+    var apps = r[0].map(function (a) { return { kind: 'app', key: a.id, id: a.id, name: a.name, color: a.color }; });
+    var stream = function (s) { s.kind = 'stream'; s.key = s.slug; return s; };
+    var favItems = r[1].map(stream).sort(function (a, b) { return (b.live - a.live) || (b.viewers - a.viewers); });
+    var list = [];
+    if (apps.length) list.push({ id: 'apps', kind: 'apps', title: 'Uygulamalar', items: apps });
+    list.push({ id: 'fav', kind: 'streams', title: 'Kick · Favoriler', note: favItems.filter(function (s) { return s.live; }).length + ' canlı', items: favItems });
+    list.push({ id: 'tr', kind: 'streams', title: 'Kick · Türkçe canlı yayınlar', items: r[2].map(stream) });
+    list.push({ id: 'all', kind: 'streams', title: "Kick · En çok izlenenler", items: r[3].map(stream) });
+    return list;
   });
+}
+
+function layout(r) { return LAYOUT[r.kind]; }
+
+// Keep the focused card inside the visible window of its row.
+function scrollTo(r, col) {
+  var visible = layout(r).visible;
+  r.col = col;
+  if (col < r.first) r.first = col;
+  if (col >= r.first + visible) r.first = col - visible + 1;
 }
 
 function refresh() {
   if (Player.isOpen()) return Promise.resolve();
   return loadRows().then(function (fresh) {
     // Keep the focus on the same stream (or the same position) across refreshes.
-    var keep = rows.map(function (r) { var s = r.items[r.col]; return s ? s.slug : null; });
-    fresh.forEach(function (r, i) {
-      var old = rows[i];
+    var focusedRowId = rows[focusRow] ? rows[focusRow].id : null;
+    fresh.forEach(function (r) {
+      var old = rows.filter(function (o) { return o.id === r.id; })[0];
       r.col = 0;
       r.first = 0;
       if (old) {
-        var at = keep[i] ? r.items.map(function (s) { return s.slug; }).indexOf(keep[i]) : -1;
-        r.col = at >= 0 ? at : Math.min(old.col, Math.max(0, r.items.length - 1));
-        r.first = Math.max(0, Math.min(old.first, r.col));
-        if (r.col >= r.first + VISIBLE_CARDS) r.first = r.col - VISIBLE_CARDS + 1;
+        var keep = old.items[old.col] ? old.items[old.col].key : null;
+        var at = keep ? r.items.map(function (s) { return s.key; }).indexOf(keep) : -1;
+        r.first = old.first;
+        scrollTo(r, at >= 0 ? at : Math.min(old.col, Math.max(0, r.items.length - 1)));
       }
     });
+    var stay = fresh.map(function (r) { return r.id; }).indexOf(focusedRowId);
+    if (stay >= 0) focusRow = stay;
     rows = fresh;
     render();
   }).catch(function (e) {
@@ -92,7 +176,22 @@ function refresh() {
 
 // ---- rendering
 
+function appCard(a) {
+  var c = el('div', 'card app');
+  c.style.background = 'linear-gradient(135deg, ' + a.color + ' 0%, ' + shade(a.color) + ' 100%)';
+  c.appendChild(el('div', 'app-name', a.name));
+  return c;
+}
+
+// A darker version of a #rrggbb colour, for the tile gradient.
+function shade(hex) {
+  var n = parseInt(hex.slice(1), 16);
+  var f = function (v) { return Math.round(v * 0.55); };
+  return 'rgb(' + f(n >> 16) + ',' + f((n >> 8) & 255) + ',' + f(n & 255) + ')';
+}
+
 function card(s, row) {
+  if (s.kind === 'app') return appCard(s);
   var c;
   if (s.live) {
     c = el('div', 'card');
@@ -124,7 +223,7 @@ function render() {
   inner.innerHTML = '';
   $('empty').style.display = 'none';
   rows.forEach(function (r) {
-    r.el = el('div', 'row');
+    r.el = el('div', 'row row-' + r.kind);
     var title = el('div', 'row-title', r.title);
     if (r.note) title.appendChild(el('small', '', r.note));
     r.el.appendChild(title);
@@ -140,7 +239,7 @@ function render() {
 
 function renderSkeleton() {
   var inner = $('rows-inner');
-  ['Favoriler', 'Türkçe canlı yayınlar'].forEach(function (t) {
+  ['Uygulamalar', 'Kick · Favoriler'].forEach(function (t) {
     var row = el('div', 'row');
     row.appendChild(el('div', 'row-title', t));
     var track = el('div', 'track');
@@ -153,7 +252,7 @@ function renderSkeleton() {
 // Load images only near the visible window, so the TV doesn't fetch 90 thumbnails at once.
 function loadImages(r) {
   var cards = r.track.children;
-  for (var i = Math.max(0, r.first - 2); i < Math.min(cards.length, r.first + VISIBLE_CARDS + 4); i++) {
+  for (var i = Math.max(0, r.first - 2); i < Math.min(cards.length, r.first + layout(r).visible + 4); i++) {
     var imgs = cards[i].getElementsByTagName('img');
     for (var j = 0; j < imgs.length; j++) {
       if (imgs[j].dataset.src && !imgs[j].src) { imgs[j].decoding = 'async'; imgs[j].src = imgs[j].dataset.src; }
@@ -164,10 +263,12 @@ function loadImages(r) {
 function updateFocus(instant) {
   var prev = document.querySelector('.card.focused');
   if (prev) prev.classList.remove('focused');
-  $('rows-inner').style.transform = 'translateY(' + (-focusRow * ROW_HEIGHT) + 'px)';
+  var offset = 0;
+  for (var k = 0; k < focusRow; k++) offset += layout(rows[k]).height;
+  $('rows-inner').style.transform = 'translateY(' + (-offset) + 'px)';
   rows.forEach(function (r, i) {
     r.el.classList.toggle('above', i < focusRow);
-    r.track.style.transform = 'translateX(' + (-r.first * CARD_STEP) + 'px)';
+    r.track.style.transform = 'translateX(' + (-r.first * layout(r).step) + 'px)';
     if (i >= focusRow - 1 && i <= focusRow + 1) loadImages(r);
   });
   var r = rows[focusRow];
@@ -183,6 +284,7 @@ function updateFocus(instant) {
 }
 
 function renderHeroText(s) {
+  if (s.kind === 'app') return renderAppHero(s);
   var tags = $('hero-tags');
   tags.innerHTML = '';
   tags.appendChild(el('span', s.live ? 'pill live' : 'pill off', s.live ? 'CANLI' : 'ÇEVRİMDIŞI'));
@@ -195,17 +297,36 @@ function renderHeroText(s) {
   $('hero-meta').textContent = metaLine(s) + (Favourites.has(s.slug) ? '  ·  ★ Favori' : '');
 }
 
+function renderAppHero(a) {
+  var tags = $('hero-tags');
+  tags.innerHTML = '';
+  tags.appendChild(el('span', 'pill app', 'UYGULAMA'));
+  $('hero-name').textContent = a.name;
+  $('hero-title').textContent = 'Açmak için OK';
+  $('hero-meta').textContent = 'Geri dönmek için: Home → anka tv';
+}
+
 function renderHeroImage(s) {
-  var bg = s.live ? s.hero : s.offlineImage || '';
-  if (s.slug === heroSlug && bg) return;
-  heroSlug = s.slug;
+  var bg = s.kind === 'app' ? '' : s.live ? s.hero : s.offlineImage || '';
+  if (s.key === heroSlug && bg) return;
+  heroSlug = s.key;
+  if (s.kind === 'app') {
+    // Apps have no picture: a wash of the app's colour instead.
+    var layer = $(heroLayer ? 'hero-bg-a' : 'hero-bg-b');
+    var old = $(heroLayer ? 'hero-bg-b' : 'hero-bg-a');
+    layer.style.backgroundImage = 'radial-gradient(ellipse at 70% 40%, ' + s.color + ' 0%, ' + shade(s.color) + ' 45%, rgba(0,0,0,0) 75%)';
+    layer.classList.add('on');
+    old.classList.remove('on');
+    heroLayer = 1 - heroLayer;
+    return;
+  }
   // Cross-fade two layers once the new picture has loaded.
   var next = $(heroLayer ? 'hero-bg-a' : 'hero-bg-b');
   var cur = $(heroLayer ? 'hero-bg-b' : 'hero-bg-a');
   if (!bg) { cur.classList.remove('on'); return; }
   var pre = new Image();
   pre.onload = function () {
-    if (heroSlug !== s.slug) return;
+    if (heroSlug !== s.key) return;
     next.style.backgroundImage = 'url("' + bg + '")';
     next.classList.add('on');
     cur.classList.remove('on');
@@ -226,9 +347,7 @@ function move(dRow, dCol) {
     var r = rows[focusRow];
     var col = r.col + dCol;
     if (col < 0 || col >= r.items.length) return;
-    r.col = col;
-    if (col < r.first) r.first = col;
-    if (col >= r.first + VISIBLE_CARDS) r.first = col - VISIBLE_CARDS + 1;
+    scrollTo(r, col);
   }
   updateFocus(false);
 }
@@ -237,22 +356,31 @@ function activate() {
   var r = rows[focusRow];
   var s = r && r.items[r.col];
   if (!s) return;
+  if (s.kind === 'app') return launchApp(s);
   if (!s.live) { Toast.show({ text: s.name + ' şu an yayında değil.' }); return; }
   var live = r.items.filter(function (x) { return x.live; });
   log('open ' + s.slug + ' from ' + r.id);
   Player.open(live, live.indexOf(s), function (last) {
     // Back in the grid: focus the channel we ended up on, if it's in this row.
     var at = r.items.indexOf(last);
-    if (at >= 0) { r.col = at; if (at < r.first) r.first = at; if (at >= r.first + VISIBLE_CARDS) r.first = at - VISIBLE_CARDS + 1; }
+    if (at >= 0) scrollTo(r, at);
     updateFocus(true);
     refresh();
   });
 }
 
+function launchApp(a) {
+  log('launch ' + a.name);
+  fetch(SERVICE + '/launch?id=' + encodeURIComponent(a.id), { method: 'POST' })
+    .then(function (r) { return r.json(); })
+    .then(function (r) { if (r.dev) Toast.show({ text: a.name + ' TV\'de açılırdı (Mac\'te çalışıyor).' }); })
+    .catch(function (e) { Toast.show({ text: a.name + ' açılamadı.', level: 'error' }); log('launch failed: ' + e); });
+}
+
 function toggleFavourite() {
   var r = rows[focusRow];
   var s = r && r.items[r.col];
-  if (!s) return;
+  if (!s || s.kind !== 'stream') return;
   var added = Favourites.toggle(s.slug);
   Toast.show({ text: s.name + (added ? ' favorilere eklendi ★' : ' favorilerden çıkarıldı') });
   log('favourite ' + (added ? 'added ' : 'removed ') + s.slug);
@@ -373,12 +501,16 @@ function main() {
   window.addEventListener('resize', fitStage);
   tickClock();
   setInterval(tickClock, 10000);
+  loadWeather();
+  setInterval(loadWeather, 15 * 60000);
   Player.init();
+  Player.onChange(reportState);
   renderSkeleton();
   log('app started: ' + navigator.userAgent);
   refresh();
   setInterval(refresh, REFRESH_MS);
   setInterval(poll, 1500);
+  setInterval(reportState, 5000);
   // Only on the TV, where TizenBrew serves the published version (on port 8081).
   if (location.port === '8081') {
     checkVersion();

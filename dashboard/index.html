@@ -1,0 +1,418 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0b0b0f">
+<title>anka tv · panel</title>
+<!-- Served by the module's service on the TV (http://<tv ip>:8090/). Same-origin calls to the service's API. -->
+<style>
+  :root { --bg: #0b0b0f; --panel: #15151b; --line: #26262f; --text: #f4f4f6; --muted: #9a9aa6; --accent: #53fc18; --live: #e5243b; --warn: #ffb020; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 560px; margin: 0 auto; padding: 16px 16px 48px; }
+  header { display: flex; align-items: center; justify-content: space-between; padding: 8px 0 16px; }
+  .brand { font-size: 22px; font-weight: 800; }
+  .brand span { color: var(--accent); }
+  .brand em { font-style: normal; font-size: 13px; font-weight: 500; color: var(--muted); margin-left: 8px; }
+  .status { display: flex; align-items: center; font-size: 14px; color: var(--muted); }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: #555; margin-right: 8px; }
+  .dot.on { background: var(--accent); box-shadow: 0 0 0 4px rgba(83,252,24,.15); }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 16px; margin-bottom: 14px; }
+  h2 { margin: 0 0 12px; font-size: 15px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .6px; }
+  /* "On the TV now": the stream's picture behind the details, like the TV's hero. */
+  .now-card { position: relative; overflow: hidden; border-radius: 16px; min-height: 96px; margin-bottom: 14px; background: var(--panel); border: 1px solid var(--line); }
+  .now-card .bg { position: absolute; left: 0; top: 0; right: 0; bottom: 0; background-size: cover; background-position: center; }
+  .now-card .shade { position: absolute; left: 0; top: 0; right: 0; bottom: 0; background: linear-gradient(0deg, rgba(11,11,15,.97) 15%, rgba(11,11,15,.8) 55%, rgba(11,11,15,.5)); }
+  .now b, .now small, .now .label { text-shadow: 0 1px 10px rgba(0,0,0,.7); }
+  .now-card.playing { min-height: 200px; }
+  .now { position: relative; display: flex; align-items: flex-end; min-height: inherit; padding: 16px; }
+  .now img { width: 52px; height: 52px; border-radius: 50%; object-fit: cover; margin-right: 12px; background: var(--line); border: 2px solid rgba(255,255,255,.85); flex: none; }
+  .now b { display: block; font-size: 20px; }
+  .now small { display: block; color: #cfcfd6; }
+  .now .label { font-size: 12px; font-weight: 700; letter-spacing: .6px; text-transform: uppercase; color: var(--muted); margin-bottom: 4px; }
+  .chip { display: inline-block; font-size: 12px; font-weight: 700; padding: 3px 8px; border-radius: 6px; background: rgba(255,255,255,.14); margin-top: 8px; margin-right: 6px; }
+  .pill { display: inline-block; font-size: 11px; font-weight: 800; letter-spacing: .8px; padding: 2px 7px; border-radius: 6px; background: var(--live); color: #fff; vertical-align: 2px; margin-left: 6px; }
+  .pill.off { background: #33333d; color: var(--muted); }
+
+  .remote { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; max-width: 300px; margin: 0 auto; }
+  .remote button { height: 64px; font-size: 22px; }
+  .remote .ok { background: var(--accent); color: #0b0b0f; font-weight: 800; }
+  .remote .blank { visibility: hidden; }
+  .remote-extra { display: flex; justify-content: center; gap: 10px; margin-top: 12px; }
+  .remote-extra button { flex: 1; max-width: 92px; height: 48px; }
+
+  button { font: inherit; color: var(--text); background: #22222b; border: 1px solid #30303a; border-radius: 12px; padding: 10px 14px; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+  button:active { transform: scale(.97); background: #2c2c36; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #0b0b0f; font-weight: 700; }
+  button.icon { width: 40px; height: 40px; padding: 0; font-size: 17px; }
+  button:disabled { opacity: .35; }
+  input[type=text], textarea { width: 100%; font: inherit; color: var(--text); background: #0f0f14; border: 1px solid #30303a; border-radius: 12px; padding: 12px 14px; outline: none; }
+  input[type=text]:focus, textarea:focus { border-color: var(--accent); }
+  textarea { resize: vertical; min-height: 72px; }
+  .row { display: flex; gap: 10px; align-items: center; }
+  .row input { flex: 1; }
+  .hint { font-size: 13px; color: var(--muted); margin-top: 8px; }
+
+  .favs { list-style: none; margin: 0 0 12px; padding: 0; }
+  .favs li { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+  .favs li:last-child { border-bottom: 0; }
+  .favs img { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; background: var(--line); flex: none; }
+  .favs .who { flex: 1; min-width: 0; }
+  .favs .who b { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .favs .who small { display: block; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .favs .tools { display: flex; gap: 4px; flex: none; }
+  .favs .tools button { width: 34px; height: 34px; font-size: 15px; border-radius: 10px; background: transparent; border-color: transparent; color: var(--muted); }
+  .favs li.live { cursor: pointer; }
+  .favs li.live:active { opacity: .7; }
+  .favs .play { width: 34px; height: 34px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: var(--accent); color: #0b0b0f; font-size: 13px; flex: none; }
+  .themes { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 10px; }
+  .theme { padding: 0; border-radius: 14px; overflow: hidden; text-align: left; border: 2px solid transparent; background: #0f0f14; }
+  .theme.on { border-color: var(--text); }
+  .theme .swatch { height: 64px; padding: 10px; position: relative; }
+  .theme .swatch i { position: absolute; left: 10px; bottom: 10px; width: 46px; height: 26px; border-radius: 6px; }
+  .theme .swatch u { position: absolute; left: 10px; top: 12px; width: 30px; height: 6px; border-radius: 3px; }
+  .theme .swatch s { position: absolute; right: 10px; bottom: 10px; width: 22px; height: 26px; border-radius: 6px; opacity: .6; }
+  .theme span { display: block; padding: 8px 10px; font-size: 13px; font-weight: 600; }
+  .check { display: flex; align-items: center; gap: 8px; margin: 10px 0; color: var(--muted); }
+  .check input { width: 20px; height: 20px; accent-color: var(--accent); }
+  details summary { cursor: pointer; color: var(--muted); font-weight: 700; font-size: 15px; text-transform: uppercase; letter-spacing: .6px; }
+  pre { margin: 12px 0 0; max-height: 320px; overflow: auto; font-size: 12px; line-height: 1.5; color: #c9c9d1; white-space: pre-wrap; word-break: break-word; }
+  /* Wide screens (the Mac): two columns, the TV and its remote on the left. */
+  @media (min-width: 900px) {
+    main { max-width: 1100px; display: grid; grid-template-columns: 420px 1fr; grid-column-gap: 20px; align-items: start; padding-top: 24px; }
+    header { grid-column: 1 / -1; }
+    .col { min-width: 0; }
+    .col-left { position: sticky; top: 20px; }
+    .now-card.playing { min-height: 260px; }
+  }
+  #toast { position: fixed; left: 50%; bottom: 24px; transform: translate(-50%, 120px); background: #22222b; border: 1px solid #30303a; border-left: 4px solid var(--accent);
+    padding: 12px 18px; border-radius: 12px; transition: transform .25s ease; max-width: calc(100% - 32px); }
+  #toast.on { transform: translate(-50%, 0); }
+  #toast.error { border-left-color: var(--live); }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div class="brand">anka<span>tv</span><em id="version"></em></div>
+    <div class="status"><span class="dot" id="dot"></span><span id="status-text">bağlanıyor…</span></div>
+  </header>
+
+  <div class="col col-left">
+  <div class="now-card" id="now-card"><div class="bg" id="now-bg"></div><div class="shade"></div><div class="now" id="now"><small>Bilgi bekleniyor…</small></div></div>
+
+  <section>
+    <h2>Kumanda</h2>
+    <div class="remote">
+      <button class="blank"></button><button data-key="UP" aria-label="Yukarı">▲</button><button data-key="CH_UP" aria-label="Kanal yukarı">CH+</button>
+      <button data-key="LEFT" aria-label="Sol">◀</button><button data-key="ENTER" class="ok">OK</button><button data-key="RIGHT" aria-label="Sağ">▶</button>
+      <button class="blank"></button><button data-key="DOWN" aria-label="Aşağı">▼</button><button data-key="CH_DOWN" aria-label="Kanal aşağı">CH−</button>
+    </div>
+    <div class="remote-extra">
+      <button data-key="BACK">↩ Geri</button><button data-key="PLAY_PAUSE">⏯</button><button data-cmd="refresh">↻ Yenile</button>
+    </div>
+  </section>
+
+  <section>
+    <h2>TV'de aç</h2>
+    <form class="row" id="play-form">
+      <input type="text" id="play-slug" placeholder="kanal adı, ör. zeitnot" autocapitalize="off" autocomplete="off" spellcheck="false">
+      <button class="primary" type="submit">Aç</button>
+    </form>
+  </section>
+
+  </div>
+  <div class="col">
+  <section>
+    <h2>Favoriler</h2>
+    <ul class="favs" id="favs"></ul>
+    <form class="row" id="fav-form">
+      <input type="text" id="fav-slug" placeholder="kanal ekle" autocapitalize="off" autocomplete="off" spellcheck="false">
+      <button type="submit">Ekle</button>
+    </form>
+    <div class="hint">TV'de bir kartın üstünde OK'a basılı tutmak da favorilere ekler.</div>
+  </section>
+
+  <section>
+    <h2>Tema</h2>
+    <div class="themes" id="themes"></div>
+    <div class="hint">TV birkaç saniye içinde yeni temaya geçer.</div>
+  </section>
+
+  <section>
+    <h2>Bildirim gönder</h2>
+    <form id="notify-form">
+      <textarea id="notify-text" placeholder="TV'de görünecek mesaj"></textarea>
+      <label class="check"><input type="checkbox" id="notify-sound" checked> Sesli</label>
+      <button class="primary" type="submit">Gönder</button>
+    </form>
+  </section>
+
+  <section>
+    <details id="log-box"><summary>Log</summary><pre id="log"></pre></details>
+  </section>
+  </div>
+</main>
+<div id="toast"></div>
+<script>
+  'use strict';
+  var favourites = [];
+  var channelInfo = {};
+  var toastTimer;
+
+  function $(id) { return document.getElementById(id); }
+
+  function toast(text, error) {
+    var t = $('toast');
+    t.textContent = text;
+    t.className = 'on' + (error ? ' error' : '');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { t.className = ''; }, 2500);
+  }
+
+  function post(path, body) {
+    return fetch(path, { method: 'POST', body: typeof body === 'string' ? body : JSON.stringify(body) }).then(function (r) {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r;
+    });
+  }
+
+  function getJson(path) {
+    return fetch(path).then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); });
+  }
+
+  function textEl(tag, className, text) {
+    var e = document.createElement(tag);
+    if (className) e.className = className;
+    e.textContent = text;
+    return e;
+  }
+
+  function slugify(v) { return v.trim().toLowerCase().replace(/^https?:\/\/(www\.)?kick\.com\//, '').replace(/[^\w-]/g, ''); }
+
+  function fmtViewers(n) { return n >= 1000 ? (n / 1000).toFixed(1).replace('.', ',') + 'B' : String(n); }
+
+  // ---- what the TV shows
+
+  function refreshState() {
+    getJson('/state').then(function (r) {
+      var s = r.state;
+      var online = s && r.ageSeconds < 15;
+      $('dot').className = 'dot' + (online ? ' on' : '');
+      $('status-text').textContent = online ? 'TV bağlı' : 'TV uygulaması kapalı';
+      if (s && s.version) $('version').textContent = s.version;
+      var now = $('now');
+      var playing = online && s.screen === 'player';
+      now.innerHTML = '';
+      $('now-card').className = 'now-card' + (playing ? ' playing' : '');
+      var bg = playing && s.thumb ? 'url("' + s.thumb + '")' : 'none';
+      if ($('now-bg').style.backgroundImage !== bg) $('now-bg').style.backgroundImage = bg;
+      var d = document.createElement('div');
+      d.appendChild(textEl('div', 'label', 'TV\'de şu an'));
+      if (!online) {
+        d.appendChild(textEl('b', '', 'Uygulama kapalı'));
+        d.appendChild(textEl('small', '', 'TizenBrew\'den anka-tv\'yi açınca burada görünür.'));
+      } else if (!playing) {
+        d.appendChild(textEl('b', '', 'Ana ekran'));
+        d.appendChild(textEl('small', '', 'Kanallara göz atılıyor'));
+      } else {
+        if (s.avatar) { var img = document.createElement('img'); img.src = s.avatar; now.appendChild(img); }
+        var b = textEl('b', '', s.name || s.slug);
+        b.appendChild(textEl('span', 'pill', 'CANLI'));
+        d.appendChild(b);
+        d.appendChild(textEl('small', '', s.title || ''));
+        if (s.quality) d.appendChild(textEl('span', 'chip', s.quality));
+        if (s.viewers) d.appendChild(textEl('span', 'chip', fmtViewers(s.viewers) + ' izleyici'));
+        if (s.category) d.appendChild(textEl('span', 'chip', s.category));
+      }
+      now.appendChild(d);
+    }).catch(function () {
+      $('dot').className = 'dot';
+      $('status-text').textContent = 'servise ulaşılamıyor';
+    });
+  }
+
+  // ---- favourites
+
+  function loadFavourites() {
+    return getJson('/favourites').then(function (r) {
+      favourites = r.favourites || [];
+      renderFavourites();
+      if (!favourites.length) return;
+      return getJson('/channels?slugs=' + favourites.map(encodeURIComponent).join(',')).then(function (list) {
+        list.forEach(function (c) { channelInfo[c.slug] = c; });
+        renderFavourites();
+      });
+    });
+  }
+
+  function saveFavourites(message) {
+    return post('/favourites', favourites)
+      .then(function () { return post('/cmd', 'refresh'); })
+      .then(function () { if (message) toast(message); renderFavourites(); })
+      .catch(function (e) { toast('Kaydedilemedi: ' + e.message, true); });
+  }
+
+  function renderFavourites() {
+    var ul = $('favs');
+    ul.innerHTML = '';
+    if (!favourites.length) { ul.innerHTML = '<li><small style="color:var(--muted)">Henüz favori yok.</small></li>'; return; }
+    favourites.forEach(function (slug, i) {
+      var c = channelInfo[slug] || { slug: slug, name: slug };
+      var li = document.createElement('li');
+      // Tapping a live channel opens it on the TV.
+      if (c.live) {
+        li.className = 'live';
+        li.onclick = function (e) { if (e.target.tagName !== 'BUTTON') play(slug); };
+      }
+      var img = document.createElement('img');
+      if (c.avatar) img.src = c.avatar;
+      li.appendChild(img);
+      var who = document.createElement('div'); who.className = 'who';
+      var b = document.createElement('b'); b.textContent = c.name;
+      var pill = document.createElement('span');
+      pill.className = 'pill' + (c.live ? '' : ' off');
+      pill.textContent = c.live ? 'CANLI' : 'KAPALI';
+      if (c.live !== undefined) b.appendChild(pill);
+      var small = document.createElement('small');
+      small.textContent = c.live ? fmtViewers(c.viewers) + ' izleyici · ' + (c.category || '') : (c.live === false ? 'Yayında değil' : '');
+      who.appendChild(b); who.appendChild(small);
+      li.appendChild(who);
+      var tools = document.createElement('div'); tools.className = 'tools';
+      tools.appendChild(iconButton('↑', 'Yukarı taşı', i === 0, function () { move(i, -1); }));
+      tools.appendChild(iconButton('↓', 'Aşağı taşı', i === favourites.length - 1, function () { move(i, 1); }));
+      tools.appendChild(iconButton('✕', 'Çıkar', false, function () {
+        favourites.splice(i, 1);
+        saveFavourites(c.name + ' çıkarıldı');
+      }));
+      li.appendChild(tools);
+      if (c.live) li.appendChild(textEl('span', 'play', '▶'));
+      ul.appendChild(li);
+    });
+  }
+
+  function iconButton(text, label, disabled, onClick) {
+    var b = document.createElement('button');
+    b.className = 'icon';
+    b.textContent = text;
+    b.setAttribute('aria-label', label);
+    b.title = label;
+    b.disabled = disabled;
+    b.onclick = onClick;
+    return b;
+  }
+
+  function move(i, step) {
+    var item = favourites.splice(i, 1)[0];
+    favourites.splice(i + step, 0, item);
+    saveFavourites();
+  }
+
+  $('fav-form').onsubmit = function (e) {
+    e.preventDefault();
+    var slug = slugify($('fav-slug').value);
+    if (!slug) return;
+    if (favourites.indexOf(slug) >= 0) { toast('Zaten favorilerde'); return; }
+    getJson('/channels?slugs=' + encodeURIComponent(slug)).then(function (l) {
+      var c = l[0];
+      // The service answers unknown channels with a bare offline card: no avatar, no category.
+      if (!c || (!c.live && !c.avatar)) { toast(slug + ' diye bir kanal bulunamadı', true); return; }
+      channelInfo[slug] = c;
+      favourites.push(slug);
+      $('fav-slug').value = '';
+      saveFavourites(c.name + ' eklendi ★');
+    }).catch(function (e) { toast('Kanal kontrol edilemedi: ' + e.message, true); });
+  };
+
+  // ---- remote and commands
+
+  function play(slug) {
+    post('/cmd', 'play ' + slug).then(function () { toast(slug + ' TV\'de açılıyor'); }).catch(function (e) { toast(e.message, true); });
+  }
+
+  $('play-form').onsubmit = function (e) {
+    e.preventDefault();
+    var slug = slugify($('play-slug').value);
+    if (slug) play(slug);
+  };
+
+  Array.prototype.forEach.call(document.querySelectorAll('[data-key], [data-cmd]'), function (b) {
+    b.addEventListener('click', function () {
+      var cmd = b.dataset.key ? 'key ' + b.dataset.key : b.dataset.cmd;
+      post('/cmd', cmd).catch(function (e) { toast('Gönderilemedi: ' + e.message, true); });
+      if (navigator.vibrate) navigator.vibrate(10);
+    });
+  });
+
+  $('notify-form').onsubmit = function (e) {
+    e.preventDefault();
+    var text = $('notify-text').value.trim();
+    if (!text) return;
+    post('/notify', { text: text, sound: $('notify-sound').checked })
+      .then(function () { $('notify-text').value = ''; toast('Bildirim gönderildi'); })
+      .catch(function (e) { toast('Gönderilemedi: ' + e.message, true); });
+  };
+
+  // ---- theme (colours mirror the :root[data-theme] blocks in app/index.html)
+
+  var THEMES = [
+    { id: 'night', name: 'Gece', bg: '#0b0b0f', card: '#1b1b22', accent: '#53fc18' },
+    { id: 'ocean', name: 'Okyanus', bg: '#06121e', card: '#0f2236', accent: '#38d6ff' },
+    { id: 'sunset', name: 'Gün batımı', bg: '#150c0b', card: '#2a1815', accent: '#ff8a3d' },
+    { id: 'lavender', name: 'Lavanta', bg: '#0e0a16', card: '#1c1530', accent: '#b18cff' },
+    { id: 'oled', name: 'OLED siyah', bg: '#000000', card: '#111111', accent: '#ffffff' }
+  ];
+  var settings = {};
+
+  function renderThemes() {
+    var box = $('themes');
+    box.innerHTML = '';
+    var current = settings.theme || 'sunset';   // the app's default too
+    THEMES.forEach(function (t) {
+      var b = document.createElement('button');
+      b.className = 'theme' + (t.id === current ? ' on' : '');
+      var sw = document.createElement('div');
+      sw.className = 'swatch';
+      sw.style.background = t.bg;
+      var bar = document.createElement('u'); bar.style.background = t.accent;
+      var card = document.createElement('i'); card.style.background = t.card; card.style.boxShadow = 'inset 0 0 0 2px ' + t.accent;
+      var card2 = document.createElement('s'); card2.style.background = t.card;
+      sw.appendChild(bar); sw.appendChild(card); sw.appendChild(card2);
+      b.appendChild(sw);
+      b.appendChild(textEl('span', '', t.name));
+      b.onclick = function () {
+        settings.theme = t.id;
+        renderThemes();
+        post('/settings', { theme: t.id })
+          .then(function () { return post('/cmd', 'refresh'); })
+          .then(function () { toast('Tema: ' + t.name); })
+          .catch(function (e) { toast('Kaydedilemedi: ' + e.message, true); });
+      };
+      box.appendChild(b);
+    });
+  }
+
+  getJson('/settings').then(function (s) { settings = s || {}; renderThemes(); }).catch(function () { renderThemes(); });
+
+  // ---- log
+
+  function refreshLog() {
+    if (!$('log-box').open) return;
+    fetch('/log').then(function (r) { return r.text(); }).then(function (t) {
+      var pre = $('log');
+      var atBottom = pre.scrollTop + pre.clientHeight >= pre.scrollHeight - 8;
+      pre.textContent = t.trim().split('\n').slice(-80).join('\n');
+      if (atBottom) pre.scrollTop = pre.scrollHeight;
+    });
+  }
+  $('log-box').addEventListener('toggle', refreshLog);
+
+  refreshState();
+  loadFavourites().catch(function (e) { toast('Favoriler yüklenemedi: ' + e.message, true); });
+  setInterval(refreshState, 3000);
+  setInterval(refreshLog, 3000);
+  setInterval(function () { loadFavourites().catch(function () {}); }, 60000);
+</script>
+</body>
+</html>

@@ -9,33 +9,49 @@
   TizenBrew's web view on our TV is Chromium 120, so modern CSS works; the TV's own browser is older.
 -->
 <style>
+  /* Themes: picked in the dashboard (settings.theme), applied as data-theme on <html>. */
   :root {
     --bg: #0b0b0f;
+    --bg-rgb: 11, 11, 15;
     --card: #1b1b22;
     --text: #f4f4f6;
     --muted: #9a9aa6;
     --accent: #53fc18;
     --live: #e5243b;
+    --focus: #ffffff;
   }
-  html, body { margin: 0; height: 100%; background: var(--bg); overflow: hidden; }
+  :root[data-theme="ocean"] { --bg: #06121e; --bg-rgb: 6, 18, 30; --card: #0f2236; --muted: #8aa4bd; --accent: #38d6ff; --focus: #38d6ff; }
+  :root[data-theme="sunset"] { --bg: #150c0b; --bg-rgb: 21, 12, 11; --card: #2a1815; --muted: #b59a92; --accent: #ff8a3d; --live: #ff3d6e; --focus: #ffb27a; }
+  :root[data-theme="lavender"] { --bg: #0e0a16; --bg-rgb: 14, 10, 22; --card: #1c1530; --muted: #a59bbf; --accent: #b18cff; --focus: #d9c7ff; }
+  :root[data-theme="oled"] { --bg: #000000; --bg-rgb: 0, 0, 0; --card: #111111; --muted: #8a8a8a; --accent: #ffffff; --live: #ff2d2d; --focus: #ffffff; }  html, body { margin: 0; height: 100%; background: var(--bg); overflow: hidden; }
   body { font-family: "SamsungOne", "Samsung Sans", Roboto, "Helvetica Neue", Arial, sans-serif; color: var(--text); }
   #stage { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; overflow: hidden; transform-origin: 0 0; background: var(--bg); }
 
   /* Top bar */
-  #topbar { position: absolute; left: 96px; right: 96px; top: 44px; height: 48px; display: flex; align-items: center; justify-content: space-between; z-index: 5; }
+  #topbar { position: absolute; left: 96px; right: 96px; top: 40px; height: 72px; display: flex; align-items: center; justify-content: space-between; z-index: 5; }
   #brand { font-size: 30px; font-weight: 800; letter-spacing: .5px; }
   #brand span { color: var(--accent); }
   #version { font-style: normal; font-size: 18px; font-weight: 500; color: var(--muted); margin-left: 14px; }
-  #clock { font-size: 34px; font-weight: 600; color: var(--text); }
+  #brand { display: flex; align-items: center; }
+  #logo { width: 46px; height: 46px; margin-right: 12px; color: var(--accent); }
+  #topright { display: flex; align-items: center; }
+  #weather { font-size: 24px; color: var(--muted); margin-right: 28px; padding-right: 28px; border-right: 2px solid rgba(255,255,255,.12); text-align: right; line-height: 1.25; }
+  #weather b { display: block; font-size: 34px; color: var(--text); font-weight: 600; }
+  #weather:empty { display: none; }
+  #when { text-align: right; line-height: 1.2; }
+  #clock { font-size: 40px; font-weight: 700; color: var(--text); }
+  #date { font-size: 21px; color: var(--muted); }
 
   /* Hero: the focused stream */
   #hero { position: absolute; left: 0; top: 0; width: 1920px; height: 640px; }
   .hero-bg { position: absolute; right: 0; top: 0; width: 1140px; height: 640px; background-size: cover; background-position: center; opacity: 0; transition: opacity .4s ease; will-change: opacity; }
   .hero-bg.on { opacity: 1; }
   #hero-fade { position: absolute; left: 0; top: 0; width: 1920px; height: 640px;
-    background: linear-gradient(90deg, var(--bg) 0%, var(--bg) 38%, rgba(11,11,15,.85) 50%, rgba(11,11,15,0) 75%),
-                linear-gradient(0deg, var(--bg) 0%, rgba(11,11,15,0) 40%),
-                linear-gradient(180deg, rgba(11,11,15,.75) 0%, rgba(11,11,15,0) 160px); }
+    background: linear-gradient(90deg, var(--bg) 0%, var(--bg) 38%, rgba(var(--bg-rgb),.85) 50%, rgba(var(--bg-rgb),0) 75%),
+                linear-gradient(0deg, var(--bg) 0%, rgba(var(--bg-rgb),0) 40%),
+                linear-gradient(180deg, rgba(var(--bg-rgb),.92) 0%, rgba(var(--bg-rgb),.6) 110px, rgba(var(--bg-rgb),0) 230px),
+                radial-gradient(ellipse 700px 380px at 100% 0%, rgba(var(--bg-rgb),.9) 0%, rgba(var(--bg-rgb),0) 100%); }
+  #topbar { text-shadow: 0 2px 12px rgba(0,0,0,.55); }
   #hero-info { position: absolute; left: 96px; top: 168px; width: 900px; }
   #hero-tags { display: flex; align-items: center; height: 36px; margin-bottom: 20px; font-size: 24px; color: var(--muted); }
   .pill { display: inline-block; padding: 4px 12px; border-radius: 8px; font-size: 20px; font-weight: 800; letter-spacing: 1px; margin-right: 16px; }
@@ -58,7 +74,7 @@
   /* Only transform and opacity animate: the TV's GPU can't keep up with animated shadows. */
   .card { position: relative; display: inline-block; vertical-align: top; width: 384px; height: 216px; margin-right: 32px; border-radius: 14px; overflow: hidden; background: var(--card);
     transition: transform .15s ease-out; }
-  .card::after { content: ""; position: absolute; left: 0; top: 0; right: 0; bottom: 0; border: 5px solid #fff; border-radius: 14px; opacity: 0; transition: opacity .12s ease-out; }
+  .card::after { content: ""; position: absolute; left: 0; top: 0; right: 0; bottom: 0; border: 5px solid var(--focus); border-radius: 14px; opacity: 0; transition: opacity .12s ease-out; }
   .card img.thumb { width: 100%; height: 100%; object-fit: cover; display: block; }
   .card .shade { position: absolute; left: 0; right: 0; bottom: 0; height: 110px; background: linear-gradient(0deg, rgba(0,0,0,.85), rgba(0,0,0,0)); }
   .card .label { position: absolute; left: 18px; right: 18px; bottom: 14px; font-size: 24px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -69,6 +85,11 @@
   .card.offline .avatar { position: absolute; left: 50%; top: 34px; width: 96px; height: 96px; margin-left: -48px; border-radius: 50%; object-fit: cover; filter: grayscale(1); opacity: .7; background: #2a2a33; }
   .card.offline .label { color: var(--muted); text-align: center; }
   .card.hint { background: #15151b; border: 2px dashed #34343e; }
+  .row-apps { height: 290px; }
+  .row-apps .track { height: 210px; }
+  .card.app { width: 288px; height: 162px; display: inline-flex; align-items: center; justify-content: center; }
+  .card.app .app-name { font-size: 34px; font-weight: 800; color: #fff; letter-spacing: .2px; text-shadow: 0 2px 10px rgba(0,0,0,.25); }
+  .pill.app { background: var(--accent); color: var(--bg); }
   .card.hint .label { white-space: normal; text-align: center; top: 60px; bottom: auto; color: var(--muted); font-weight: 600; }
   .card.focused { transform: scale(1.09); z-index: 2; }
   .card.focused::after { opacity: 1; }
@@ -140,7 +161,7 @@
       <div id="hero-meta"></div>
     </div>
   </div>
-  <div id="topbar"><div id="brand">anka<span>tv</span><em id="version"></em></div><div id="clock"></div></div>
+  <div id="topbar"><div id="brand"><svg id="logo" viewBox="0 0 120 120" aria-hidden="true"><g fill="currentColor"><path d="M46 96 C 24 92, 8 74, 4 40 C 12 52, 18 58, 24 60 C 18 50, 16 38, 18 26 C 24 40, 30 50, 36 54 C 32 44, 32 34, 36 22 C 40 38, 44 48, 46 56 Z" opacity=".8"/><path d="M74 96 C 96 92, 112 74, 116 40 C 108 52, 102 58, 96 60 C 102 50, 104 38, 102 26 C 96 40, 90 50, 84 54 C 88 44, 88 34, 84 22 C 80 38, 76 48, 74 56 Z" opacity=".8"/><path d="M60 4 C 64 16, 72 26, 78 38 C 84 50, 86 60, 86 70 C 86 90, 74 104, 60 104 C 46 104, 34 90, 34 70 C 34 56, 40 46, 46 40 C 46 48, 49 54, 54 56 C 52 40, 54 22, 60 4 Z"/></g><path d="M52 62 L72 73 L52 84 Z" fill="var(--bg)" stroke="var(--bg)" stroke-width="4" stroke-linejoin="round"/></svg>anka<span>tv</span><em id="version"></em></div><div id="topright"><div id="weather"></div><div id="when"><div id="clock"></div><div id="date"></div></div></div></div>
   <div id="rows"><div id="rows-inner"></div></div>
   <div id="empty"></div>
 
@@ -166,8 +187,8 @@
   <div id="toasts"></div>
 </div>
 <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.17/dist/hls.min.js"></script>
-<script src="util.js?v=ea5c83e"></script>
-<script src="player.js?v=ea5c83e"></script>
-<script src="app.js?v=ea5c83e"></script>
+<script src="util.js?v=0556060"></script>
+<script src="player.js?v=0556060"></script>
+<script src="app.js?v=0556060"></script>
 </body>
 </html>

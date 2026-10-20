@@ -27,7 +27,7 @@ var url = require('url');
 // Not 8085: the spike module's service may still hold it until TizenBrew restarts.
 var PORT = 8090;
 // tools/publish.sh writes the published version here.
-var SERVICE_VERSION = '0.36.0 (34ddcec)';
+var SERVICE_VERSION = '0.37.0 (ce5e96c)';
 var UA = 'Mozilla/5.0 (SMART-TV; Linux; Tizen 6.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/76.0.3809.146 TV Safari/537.36';
 var CACHE_MS = 20000;
 // TizenBrew keeps its own config in /home/owner/share; tools/dev.sh points these elsewhere on the Mac.
@@ -304,7 +304,7 @@ function queue(req, res, list, parse) {
 // ---- Black Desert boss alerts (EU). The schedule comes from MMOTIMER's page: Garmoth answers scripts with a
 // Cloudflare challenge. Its weekly grid holds every spawn (the "upcoming" list skips the next one, shown apart).
 var BOSS_URL = 'https://mmotimer.com/bdo/?server=eu';
-var BOSS_ALERT_MS = 20 * 60000;
+var BOSS_ALERT_MS = 5 * 60000;
 var WEEK_MIN = 7 * 1440;
 var DAYS = { Sunday: 0, Monday: 1, Tuesday: 2, Wednesday: 3, Thursday: 4, Friday: 5, Saturday: 6 };
 var bossCache = null;
@@ -394,7 +394,7 @@ function bossNotice(spawn, test) {
   };
 }
 
-// Every half minute: queue an alert for each spawn that is now 20 minutes or less away, once.
+// Every half minute: queue an alert for each spawn that is now 5 minutes or less away, once.
 function checkBosses() {
   var settings = readData().settings || {};
   if (settings.bossAlerts === false) return;

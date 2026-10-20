@@ -407,12 +407,48 @@ function activate() {
   });
 }
 
+// The TV's REST API refuses launches from the TV itself (401), so inside TizenBrew we try Tizen's own app API:
+// it wants Tizen app ids, not the store ids in our catalogue, so installed apps are matched by name.
+var tizenApps = null;
+
+function tizenAppId(a) {
+  if (!window.tizen || !tizen.application) return Promise.resolve(null);
+  var find = function (list) {
+    var want = a.name.toLowerCase().replace(/[^a-z0-9]/g, '');
+    var hit = list.filter(function (i) { return i.name && i.name.toLowerCase().replace(/[^a-z0-9]/g, '') === want; })[0] ||
+      list.filter(function (i) { return i.name && i.name.toLowerCase().indexOf(a.name.toLowerCase()) >= 0; })[0];
+    return hit ? hit.id : null;
+  };
+  if (tizenApps) return Promise.resolve(find(tizenApps));
+  return new Promise(function (resolve) {
+    try {
+      tizen.application.getAppsInfo(function (list) {
+        tizenApps = list;
+        log('tizen apps: ' + list.map(function (i) { return i.name + '=' + i.id; }).join(', '));
+        resolve(find(list));
+      }, function (e) { log('tizen getAppsInfo failed: ' + e.name + ' ' + e.message); resolve(null); });
+    } catch (e) { log('tizen getAppsInfo threw: ' + e); resolve(null); }
+  });
+}
+
 function launchApp(a) {
   log('launch ' + a.name);
-  fetch(SERVICE + '/launch?id=' + encodeURIComponent(a.id), { method: 'POST' })
-    .then(function (r) { return r.json(); })
-    .then(function (r) { if (r.dev) Toast.show({ text: a.name + ' TV\'de açılırdı (Mac\'te çalışıyor).' }); })
-    .catch(function (e) { Toast.show({ text: a.name + ' açılamadı.', level: 'error' }); log('launch failed: ' + e); });
+  var failed = function (why) {
+    Toast.show({ text: a.name + ' açılamadı.', level: 'error', sound: true });
+    log('launch failed: ' + why);
+  };
+  tizenAppId(a).then(function (id) {
+    if (id) {
+      try {
+        return tizen.application.launch(id, function () { log('launched ' + a.name + ' (' + id + ')'); },
+          function (e) { failed('tizen ' + e.name + ' ' + e.message); });
+      } catch (e) { return failed('tizen threw ' + e); }
+    }
+    fetch(SERVICE + '/launch?id=' + encodeURIComponent(a.id), { method: 'POST' })
+      .then(function (r) { return r.ok ? r.json() : r.text().then(function (t) { throw new Error(t); }); })
+      .then(function (r) { if (r.dev) Toast.show({ text: a.name + ' TV\'de açılırdı (Mac\'te çalışıyor).' }); })
+      .catch(failed);
+  });
 }
 
 function toggleFavourite() {
@@ -497,7 +533,7 @@ function runCommand(cmd) {
   if (parts[0] === 'key' && KEY[parts[1]]) pressKey(parts[1]);
   else if (parts[0] === 'play' && parts[1]) {
     api('/channels?slugs=' + encodeURIComponent(parts[1])).then(function (l) {
-      if (!l[0] || !l[0].live) { Toast.show({ text: parts[1] + ' şu an yayında değil.' }); return; }
+      if (!l[0] || !l[0].live) { Toast.show({ text: parts[1] + ' şu an yayında değil.', level: 'warn', sound: true }); return; }
       if (Player.isOpen()) Player.close();
       Player.open(l, 0, function () { updateFocus(true); refresh(); });
     });
@@ -548,7 +584,7 @@ function main() {
   Player.init();
   Player.onChange(reportState);
   renderSkeleton();
-  log('app started: ' + navigator.userAgent);
+  log('app started: ' + navigator.userAgent + ' · tizen: ' + typeof window.tizen + ' · webapis: ' + typeof window.webapis);
   refresh();
   setInterval(refresh, REFRESH_MS);
   setInterval(poll, 1500);

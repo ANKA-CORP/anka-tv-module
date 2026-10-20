@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#0b0b0f">
+<meta name="theme-color" content="#160d0b">
 <title>anka tv · panel</title>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:wght@400;500;700&family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&display=swap">
@@ -28,7 +28,8 @@
   .brand em { font-family: var(--ui); font-style: normal; font-size: 13px; font-weight: 500; letter-spacing: 0; color: var(--muted); }
   .status { display: flex; align-items: center; font-size: 14px; color: var(--muted); }
   .dot { width: 9px; height: 9px; border-radius: 50%; background: #555; margin-right: 8px; }
-  .dot.on { background: var(--accent); box-shadow: 0 0 0 4px rgba(83,252,24,.15); }
+  .dot.on { background: var(--accent); animation: beat 2.4s ease-in-out infinite; }
+  @keyframes beat { 0%, 100% { box-shadow: 0 0 0 0 rgba(255,138,61,.45); } 50% { box-shadow: 0 0 0 7px rgba(255,138,61,0); } }
   /* Sections are separated by a rule and space; only the now-playing card and the remote are surfaces. */
   section { padding-block: 20px; border-top: 1px solid var(--line); }
   section.surface { background: var(--panel); border: 0; border-radius: 12px; padding: 18px 16px; margin-bottom: 16px; }
@@ -95,10 +96,49 @@
   .check input { width: 20px; height: 20px; accent-color: var(--accent); }
   details summary { cursor: pointer; font-family: var(--display); font-size: 22px; font-weight: 700; letter-spacing: -.3px; }
   pre { margin: 12px 0 0; max-height: 320px; overflow: auto; font-size: 12px; line-height: 1.5; color: #c9c9d1; white-space: pre-wrap; word-break: break-word; }
+  /* The phoenix: a three.js point cloud drawn from the logo, embers rising around it (module script below).
+     Drag to turn it; remote presses make it flare; it takes the colour of the theme you pick. */
+  .stage { position: relative; height: 300px; margin: 0 0 16px; border-radius: 16px; overflow: hidden;
+    background: radial-gradient(ellipse 60% 70% at 50% 62%, #3a1a10 0%, #1d0f0b 55%, var(--bg) 100%); touch-action: pan-y; cursor: grab; }
+  .stage:active { cursor: grabbing; }
+  .stage canvas { position: absolute; left: 0; top: 0; width: 100%; height: 100%; display: block; }
+  .stage .fallback { position: absolute; left: 50%; top: 50%; width: 120px; height: 120px; margin: -60px 0 0 -60px; color: var(--accent); }
+  .stage .greet { position: absolute; left: 18px; bottom: 16px; right: 18px; pointer-events: none; }
+  .stage .greet b { display: block; font-family: var(--display); font-size: 30px; font-weight: 800; letter-spacing: -.8px; line-height: 1.05; text-wrap: balance; }
+  .stage .greet small { display: block; margin-top: 4px; color: var(--muted); font-size: 14px; }
+  .stage .hint3d { position: absolute; right: 14px; top: 12px; font-size: 12px; color: rgba(247,236,229,.45); pointer-events: none; transition: opacity .6s ease; }
+
+  /* Buttons answer like embers: a spring press and a glow that spreads from where you touched. */
+  button { position: relative; overflow: hidden; transition: transform .35s cubic-bezier(.2,1.6,.4,1), background-color .2s ease, border-color .2s ease; }
+  button:active { transform: scale(.93); transition-duration: .08s; }
+  button .spark { position: absolute; width: 12px; height: 12px; margin: -6px 0 0 -6px; border-radius: 50%; pointer-events: none;
+    background: radial-gradient(circle, rgba(255,214,184,.9) 0%, rgba(255,138,61,.55) 40%, rgba(255,138,61,0) 70%); animation: spark .6s ease-out forwards; }
+  @keyframes spark { from { transform: scale(1); opacity: 1; } to { transform: scale(14); opacity: 0; } }
+  .remote .ok { box-shadow: 0 0 0 0 rgba(255,138,61,.5); animation: okglow 3.2s ease-in-out infinite; }
+  @keyframes okglow { 50% { box-shadow: 0 0 22px 2px rgba(255,138,61,.35); } }
+  @media (hover: hover) { button:not(:disabled):hover { border-color: #6a4537; } .theme:hover { transform: translateY(-3px); } }
+  .theme { transition: transform .35s cubic-bezier(.2,1.6,.4,1), border-color .2s ease; }
+  .theme.on { transform: translateY(-2px); }
+
+  /* Things arrive instead of appearing: favourites slide in one after another, the stream picture drifts slowly. */
+  .favs li { animation: rise .45s cubic-bezier(.2,.8,.2,1) both; }
+  .favs li:nth-child(2) { animation-delay: .05s; } .favs li:nth-child(3) { animation-delay: .1s; } .favs li:nth-child(4) { animation-delay: .15s; }
+  .favs li:nth-child(5) { animation-delay: .2s; } .favs li:nth-child(n+6) { animation-delay: .25s; }
+  @keyframes rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+  .now-card.playing .bg { animation: drift 24s ease-in-out infinite alternate; }
+  @keyframes drift { from { transform: scale(1.04) translate(0, 0); } to { transform: scale(1.12) translate(-2%, -2%); } }
+  .favs .play { animation: okglow 3.2s ease-in-out infinite; }
+  #toast { transition: transform .45s cubic-bezier(.2,1.5,.4,1); }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition-duration: .01s !important; }
+  }
+
   /* Wide screens (the Mac): two columns, the TV and its remote on the left. */
   @media (min-width: 900px) {
     main { max-width: 1100px; display: grid; grid-template-columns: 420px 1fr; grid-column-gap: 20px; align-items: start; padding-top: 24px; }
-    header { grid-column: 1 / -1; }
+    header, .stage { grid-column: 1 / -1; }
+    .stage { height: 380px; }
+    .stage .greet b { font-size: 44px; }
     .col { min-width: 0; }
     .col-left { position: sticky; top: 20px; }
     .now-card.playing { min-height: 260px; }
@@ -115,6 +155,12 @@
     <div class="brand"><svg viewBox="0 0 120 120" aria-hidden="true"><g fill="currentColor"><path d="M46 96 C 24 92, 8 74, 4 40 C 12 52, 18 58, 24 60 C 18 50, 16 38, 18 26 C 24 40, 30 50, 36 54 C 32 44, 32 34, 36 22 C 40 38, 44 48, 46 56 Z" opacity=".8"/><path d="M74 96 C 96 92, 112 74, 116 40 C 108 52, 102 58, 96 60 C 102 50, 104 38, 102 26 C 96 40, 90 50, 84 54 C 88 44, 88 34, 84 22 C 80 38, 76 48, 74 56 Z" opacity=".8"/><path d="M60 4 C 64 16, 72 26, 78 38 C 84 50, 86 60, 86 70 C 86 90, 74 104, 60 104 C 46 104, 34 90, 34 70 C 34 56, 40 46, 46 40 C 46 48, 49 54, 54 56 C 52 40, 54 22, 60 4 Z"/></g><path d="M52 62 L72 73 L52 84 Z" fill="var(--bg)" stroke="var(--bg)" stroke-width="4" stroke-linejoin="round"/></svg>anka<span>tv</span><em id="version"></em></div>
     <div class="status"><span class="dot" id="dot"></span><span id="status-text">bağlanıyor…</span></div>
   </header>
+
+  <div class="stage" id="stage" aria-label="Anka: sürükleyerek döndür">
+    <canvas id="phoenix"></canvas>
+    <div class="greet"><b id="greet">İyi akşamlar</b><small id="greet-sub">anka tv</small></div>
+    <div class="hint3d" id="hint3d">sürükle, döndür</div>
+  </div>
 
   <div class="col col-left">
   <div class="now-card" id="now-card"><div class="bg" id="now-bg"></div><div class="shade"></div><div class="now" id="now"><small>Bilgi bekleniyor…</small></div></div>
@@ -221,6 +267,8 @@
       if (s && s.version) $('version').textContent = s.version;
       var now = $('now');
       var playing = online && s.screen === 'player';
+      $('greet').textContent = greeting();
+      $('greet-sub').textContent = !online ? 'TV\'de anka tv kapalı' : playing ? 'TV\'de ' + (s.name || s.slug) + ' açık' : 'TV ana ekranda';
       now.innerHTML = '';
       $('now-card').className = 'now-card' + (playing ? ' playing' : '');
       var bg = playing && s.thumb ? 'url("' + s.thumb + '")' : 'none';
@@ -358,6 +406,8 @@
     b.addEventListener('click', function () {
       var cmd = b.dataset.key ? 'key ' + b.dataset.key : b.dataset.cmd;
       post('/cmd', cmd).catch(function (e) { toast('Gönderilemedi: ' + e.message, true); });
+      // The phoenix flares with each press; OK flares hardest.
+      window.dispatchEvent(new CustomEvent('anka:pulse', { detail: b.dataset.key === 'ENTER' ? 1 : 0.55 }));
       if (navigator.vibrate) navigator.vibrate(10);
     });
   });
@@ -399,6 +449,8 @@
       b.appendChild(sw);
       b.appendChild(textEl('span', '', t.name));
       b.onclick = function () {
+        window.dispatchEvent(new CustomEvent('anka:theme', { detail: t.accent }));
+        window.dispatchEvent(new CustomEvent('anka:pulse', { detail: 0.8 }));
         settings.theme = t.id;
         renderThemes();
         post('/settings', { theme: t.id })
@@ -410,7 +462,33 @@
     });
   }
 
-  getJson('/settings').then(function (s) { settings = s || {}; renderThemes(); }).catch(function () { renderThemes(); });
+  getJson('/settings').then(function (s) {
+    settings = s || {};
+    renderThemes();
+    var t = THEMES.filter(function (x) { return x.id === (settings.theme || 'sunset'); })[0];
+    if (t) window.dispatchEvent(new CustomEvent('anka:theme', { detail: t.accent }));
+  }).catch(function () { renderThemes(); });
+
+  // ---- touch feedback: a glow spreads from where the button was pressed
+
+  document.addEventListener('pointerdown', function (e) {
+    var b = e.target.closest && e.target.closest('button');
+    if (!b || b.disabled) return;
+    var r = b.getBoundingClientRect();
+    var spark = document.createElement('span');
+    spark.className = 'spark';
+    spark.style.left = (e.clientX - r.left) + 'px';
+    spark.style.top = (e.clientY - r.top) + 'px';
+    b.appendChild(spark);
+    setTimeout(function () { spark.remove(); }, 650);
+  });
+
+  // ---- greeting over the phoenix
+
+  function greeting() {
+    var h = new Date().getHours();
+    return h < 5 ? 'İyi geceler' : h < 12 ? 'Günaydın' : h < 18 ? 'İyi günler' : h < 23 ? 'İyi akşamlar' : 'İyi geceler';
+  }
 
   // ---- log
 
@@ -430,6 +508,192 @@
   setInterval(refreshState, 3000);
   setInterval(refreshLog, 3000);
   setInterval(function () { loadFavourites().catch(function () {}); }, 60000);
+</script>
+<script type="module">
+  // The phoenix stage: points sampled from the logo's own shapes, lifted into 3D (the wings sweep back),
+  // glowing additively, with embers rising around it. Phones and the Mac handle this easily; the TV never runs it.
+  import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js';
+
+  var stage = document.getElementById('stage');
+  var canvas = document.getElementById('phoenix');
+  var reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  var WINGS = [
+    'M46 96 C 24 92, 8 74, 4 40 C 12 52, 18 58, 24 60 C 18 50, 16 38, 18 26 C 24 40, 30 50, 36 54 C 32 44, 32 34, 36 22 C 40 38, 44 48, 46 56 Z',
+    'M74 96 C 96 92, 112 74, 116 40 C 108 52, 102 58, 96 60 C 102 50, 104 38, 102 26 C 96 40, 90 50, 84 54 C 88 44, 88 34, 84 22 C 80 38, 76 48, 74 56 Z'
+  ];
+  var BODY = 'M60 4 C 64 16, 72 26, 78 38 C 84 50, 86 60, 86 70 C 86 90, 74 104, 60 104 C 46 104, 34 90, 34 70 C 34 56, 40 46, 46 40 C 46 48, 49 54, 54 56 C 52 40, 54 22, 60 4 Z';
+  var PLAY = 'M52 62 L72 73 L52 84 Z';
+
+  // Rasterise the mark and keep the filled pixels: [x, y, isWing] in -0.5..0.5.
+  function sampleMark() {
+    var S = 240, c = document.createElement('canvas');
+    c.width = c.height = S;
+    var g = c.getContext('2d', { willReadFrequently: true });
+    g.scale(S / 120, S / 120);
+    var out = [];
+    function grab(paths, wing) {
+      g.clearRect(0, 0, 120, 120);
+      g.globalCompositeOperation = 'source-over';
+      g.fillStyle = '#fff';
+      paths.forEach(function (d) { g.fill(new Path2D(d)); });
+      g.globalCompositeOperation = 'destination-out';
+      g.fill(new Path2D(PLAY));
+      var px = g.getImageData(0, 0, S, S).data;
+      for (var y = 0; y < S; y += 1) for (var x = 0; x < S; x += 1) {
+        if (px[(y * S + x) * 4 + 3] > 120) out.push([x / S - 0.5, 0.5 - y / S, wing]);
+      }
+    }
+    grab(WINGS, 1);
+    grab([BODY], 0);
+    return out;
+  }
+
+  function start() {
+    var renderer = new THREE.WebGLRenderer({ canvas: canvas, alpha: true, antialias: false, powerPreference: 'low-power' });
+    var dpr = Math.min(window.devicePixelRatio || 1, 2);
+    renderer.setPixelRatio(dpr);
+    var scene = new THREE.Scene();
+    var camera = new THREE.PerspectiveCamera(32, 1, 0.1, 100);
+    camera.position.set(0, 0, 9.5);
+
+    var mark = sampleMark();
+    var MARK_N = Math.min(6500, mark.length);
+    var EMBER_N = 700;
+    var N = MARK_N + EMBER_N;
+    var pos = new Float32Array(N * 3), seed = new Float32Array(N), kind = new Float32Array(N);
+    var SCALE = 4.6;
+    for (var i = 0; i < MARK_N; i++) {
+      var m = mark[Math.floor(Math.random() * mark.length)];
+      var x = (m[0] + (Math.random() - 0.5) * 0.005) * SCALE;
+      var y = (m[1] + (Math.random() - 0.5) * 0.005) * SCALE + 0.15;
+      // Wings sweep back and curl; the flame body gets a rounded volume.
+      var z = m[2] ? -Math.pow(Math.abs(x), 1.6) * 0.45 + (Math.random() - 0.5) * 0.18
+                   : (Math.random() - 0.5) * 0.5 * Math.max(0.2, 1 - Math.abs(x) / 1.2);
+      pos.set([x, y, z], i * 3);
+      seed[i] = Math.random();
+      kind[i] = m[2];
+    }
+    for (var j = MARK_N; j < N; j++) {
+      pos.set([(Math.random() - 0.5) * 7, 0, (Math.random() - 0.5) * 3], j * 3);
+      seed[j] = Math.random();
+      kind[j] = 2;
+    }
+    var geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    geo.setAttribute('aSeed', new THREE.BufferAttribute(seed, 1));
+    geo.setAttribute('aKind', new THREE.BufferAttribute(kind, 1));
+
+    var uniforms = {
+      uTime: { value: 0 }, uPulse: { value: 0 }, uPR: { value: dpr },
+      uColor: { value: new THREE.Color('#ff8a3d') }
+    };
+    var mat = new THREE.ShaderMaterial({
+      uniforms: uniforms, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+      vertexShader: [
+        'attribute float aSeed; attribute float aKind;',
+        'uniform float uTime; uniform float uPulse; uniform float uPR;',
+        'varying float vHeat; varying float vAlpha;',
+        'void main() {',
+        '  vec3 p = position; float t = uTime;',
+        '  if (aKind < 1.5) {',
+        '    float flick = sin(t * 2.3 + aSeed * 40.0) * 0.025 + sin(t * 0.8 + aSeed * 12.0) * 0.02;',
+        '    vec2 dir = normalize(p.xy + vec2(0.0001));',
+        '    float burst = uPulse * (0.25 + 0.6 * fract(aSeed * 7.13));',
+        '    p.xy += dir * (flick + burst);',
+        '    p.y += burst * 0.35 + (aKind > 0.5 ? sin(t * 1.4 + p.x) * 0.05 : 0.0);',
+        '    vHeat = (aKind > 0.5 ? 0.25 : 0.75) * (1.0 - clamp(length(p.xy) / 2.4, 0.0, 1.0)) + uPulse * 0.5;',
+        '    vAlpha = aKind > 0.5 ? 0.85 : 1.0;',
+        '  } else {',
+        '    float life = fract(t * (0.05 + 0.07 * aSeed) + aSeed);',
+        '    p.y = mix(-2.8, 3.2, life);',
+        '    p.x += sin(t * 0.9 + aSeed * 30.0) * 0.35 * life;',
+        '    vHeat = 1.0 - life;',
+        '    vAlpha = (1.0 - life) * smoothstep(0.0, 0.1, life) * (0.6 + uPulse);',
+        '  }',
+        '  vec4 mv = modelViewMatrix * vec4(p, 1.0);',
+        '  gl_Position = projectionMatrix * mv;',
+        '  float size = (aKind < 1.5 ? 2.6 : 3.6) * (0.6 + fract(aSeed * 13.7));',
+        '  gl_PointSize = size * uPR * (10.0 / -mv.z) * (1.0 + uPulse * 0.9);',
+        '}'
+      ].join('\n'),
+      fragmentShader: [
+        'uniform vec3 uColor; varying float vHeat; varying float vAlpha;',
+        'void main() {',
+        '  float d = length(gl_PointCoord - 0.5);',
+        '  if (d > 0.5) discard;',
+        '  float glow = pow(1.0 - d * 2.0, 1.6);',
+        '  vec3 col = mix(uColor, vec3(1.0, 0.94, 0.85), clamp(vHeat, 0.0, 1.0) * 0.7);',
+        '  gl_FragColor = vec4(col, glow * vAlpha);',
+        '}'
+      ].join('\n')
+    });
+    var points = new THREE.Points(geo, mat);
+    var group = new THREE.Group();
+    group.add(points);
+    scene.add(group);
+
+    function resize() {
+      var w = stage.clientWidth, h = stage.clientHeight;
+      renderer.setSize(w, h, false);
+      camera.aspect = w / h;
+      // Keep the whole bird in frame on a narrow phone.
+      camera.position.z = w / h < 1.3 ? 11.5 : 9.5;
+      camera.updateProjectionMatrix();
+    }
+    new ResizeObserver(resize).observe(stage);
+    resize();
+
+    // Drag to turn; it eases back to a slow sway when let go.
+    var rotY = 0, rotX = 0, velY = 0, dragging = false, lastX = 0, lastY = 0, touched = false;
+    stage.addEventListener('pointerdown', function (e) { dragging = true; lastX = e.clientX; lastY = e.clientY; stage.setPointerCapture(e.pointerId); });
+    stage.addEventListener('pointermove', function (e) {
+      if (!dragging) return;
+      velY = (e.clientX - lastX) * 0.01;
+      rotY += velY;
+      rotX = Math.max(-0.5, Math.min(0.5, rotX + (e.clientY - lastY) * 0.005));
+      lastX = e.clientX; lastY = e.clientY;
+      if (!touched) { touched = true; document.getElementById('hint3d').style.opacity = 0; }
+    });
+    stage.addEventListener('pointerup', function () { dragging = false; });
+    stage.addEventListener('pointercancel', function () { dragging = false; });
+
+    var targetColor = new THREE.Color('#ff8a3d');
+    window.addEventListener('anka:pulse', function (e) { uniforms.uPulse.value = Math.min(1.4, uniforms.uPulse.value + (e.detail || 0.6)); });
+    window.addEventListener('anka:theme', function (e) { targetColor.set(e.detail); });
+
+    var clock = new THREE.Clock(), running = true;
+    document.addEventListener('visibilitychange', function () { running = !document.hidden; if (running) loop(); });
+    function loop() {
+      if (!running) return;
+      var dt = Math.min(clock.getDelta(), 0.05);
+      uniforms.uTime.value += reduced ? 0 : dt;
+      uniforms.uPulse.value *= Math.pow(0.04, dt);     // a flare fades in about a second
+      uniforms.uColor.value.lerp(targetColor, 1 - Math.pow(0.02, dt));
+      if (!dragging) {
+        velY *= Math.pow(0.05, dt);
+        rotY += velY;
+        var sway = reduced ? 0 : Math.sin(uniforms.uTime.value * 0.35) * 0.35;
+        rotY += (sway - rotY) * (1 - Math.pow(0.4, dt)) * (Math.abs(velY) < 0.002 ? 1 : 0);
+        rotX += (0 - rotX) * (1 - Math.pow(0.3, dt));
+      }
+      group.rotation.set(rotX, rotY, 0);
+      renderer.render(scene, camera);
+      requestAnimationFrame(loop);
+    }
+    loop();
+    // Open with a flare.
+    setTimeout(function () { window.dispatchEvent(new CustomEvent('anka:pulse', { detail: 1.2 })); }, 300);
+  }
+
+  try { start(); } catch (e) {
+    // No WebGL: show the flat mark instead.
+    canvas.remove();
+    var svg = document.querySelector('.brand svg').cloneNode(true);
+    svg.setAttribute('class', 'fallback');
+    stage.appendChild(svg);
+    document.getElementById('hint3d').remove();
+  }
 </script>
 </body>
 </html>

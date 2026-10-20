@@ -4,6 +4,7 @@
 
 var DEFAULT_FAVOURITES = ['zeitnot', 'nuriben'];
 var REFRESH_MS = 60000;
+var startedAt = Date.now();
 var LONG_PRESS_MS = 650;
 // Per row kind: cards fully on screen (one more peeks in), card width + margin, row height.
 var LAYOUT = {
@@ -169,8 +170,11 @@ function refresh() {
   }).catch(function (e) {
     log('refresh failed: ' + e);
     if (!rows.length) {
+      // Right after the TV starts, the service is still being fetched (service/service.js): try again soon.
+      var starting = Date.now() - startedAt < 60000;
       $('empty').style.display = 'block';
-      $('empty').textContent = 'Kick şu an yanıt vermiyor. Biraz sonra yeniden denenecek.';
+      $('empty').textContent = starting ? 'Bağlanıyor…' : 'Kick şu an yanıt vermiyor. Biraz sonra yeniden denenecek.';
+      if (starting) setTimeout(refresh, 3000);
     } else {
       Toast.show({ text: 'Liste yenilenemedi, birazdan tekrar denenecek.', level: 'warn' });
     }

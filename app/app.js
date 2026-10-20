@@ -163,6 +163,7 @@ function refresh() {
     if (stay >= 0) focusRow = stay;
     rows = fresh;
     render();
+    Splash.end();
   }).catch(function (e) {
     log('refresh failed: ' + e);
     if (!rows.length) {
@@ -198,7 +199,7 @@ function card(s, row) {
     var img = el('img', 'thumb');
     img.dataset.src = s.thumb;
     c.appendChild(img);
-    c.appendChild(el('span', 'pill live', 'CANLI'));
+    c.appendChild(el('span', 'pill live', 'Canlı'));
     c.appendChild(el('span', 'viewers', formatViewers(s.viewers)));
     c.appendChild(el('div', 'shade'));
   } else {
@@ -287,7 +288,7 @@ function renderHeroText(s) {
   if (s.kind === 'app') return renderAppHero(s);
   var tags = $('hero-tags');
   tags.innerHTML = '';
-  tags.appendChild(el('span', s.live ? 'pill live' : 'pill off', s.live ? 'CANLI' : 'ÇEVRİMDIŞI'));
+  tags.appendChild(el('span', s.live ? 'pill live' : 'pill off', s.live ? 'Canlı' : 'Çevrimdışı'));
   if (s.category) tags.appendChild(document.createTextNode(s.category));
   var name = $('hero-name');
   name.innerHTML = '';
@@ -300,7 +301,7 @@ function renderHeroText(s) {
 function renderAppHero(a) {
   var tags = $('hero-tags');
   tags.innerHTML = '';
-  tags.appendChild(el('span', 'pill app', 'UYGULAMA'));
+  tags.appendChild(el('span', 'pill app', 'Uygulama'));
   $('hero-name').textContent = a.name;
   $('hero-title').textContent = 'Açmak için OK';
   $('hero-meta').textContent = 'Geri dönmek için: Home → anka tv';
@@ -503,6 +504,9 @@ function main() {
   setInterval(tickClock, 10000);
   loadWeather();
   setInterval(loadWeather, 15 * 60000);
+  Splash.begin();
+  // At most 6 s of splash, even if Kick is slow; the rows show their own placeholders.
+  setTimeout(Splash.end, 6000);
   Player.init();
   Player.onChange(reportState);
   renderSkeleton();

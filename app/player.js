@@ -224,7 +224,7 @@ var Player = (function () {
     name.innerHTML = '';
     if (s.avatar) { var img = el('img'); img.src = s.avatar; name.appendChild(img); }
     name.appendChild(document.createTextNode(s.name));
-    name.appendChild(el('span', 'pill live', 'CANLI'));
+    name.appendChild(el('span', 'pill live', 'Canlı'));
     $('osd-title').textContent = s.title;
     $('osd-meta').textContent = metaLine(s);
     renderQuality();

@@ -32,7 +32,7 @@ var url = require('url');
 // Not 8085: the spike module's service may still hold it until TizenBrew restarts.
 var PORT = Number(process.env.ANKA_PORT) || 8090;   // another port only in tools/test.sh
 // tools/publish.sh writes the published version here.
-var SERVICE_VERSION = '0.49.0 (d4daf1b)';
+var SERVICE_VERSION = '0.50.0 (2ab12bd)';
 var UA = 'Mozilla/5.0 (SMART-TV; Linux; Tizen 6.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/76.0.3809.146 TV Safari/537.36';
 var CACHE_MS = 20000;
 // TizenBrew keeps its own config in /home/owner/share; tools/dev.sh points these elsewhere on the Mac.
@@ -88,6 +88,15 @@ var APP_CATALOGUE = [
   { id: '3201606009684', tizen: 'rJeHak5zRg.Spotify', name: 'Spotify', color: '#1db954' },
   { id: '3202010022079', tizen: 'org.tizen.browser', name: 'İnternet', color: '#5b5bd6' }
 ];
+// The PlayStation is an HDMI input, not an app: its tile switches the TV over the remote channel. Shown once the
+// dashboard says which input it is on (settings.ps5Input, e.g. KEY_HDMI2).
+var PS5 = { id: 'ps5', name: 'PlayStation 5', color: '#0070d1', web: 'www.playstation.com', input: true };
+
+function withInputs(list) {
+  var key = (readData().settings || {}).ps5Input;
+  if (!/^KEY_HDMI\d$/.test(key || '')) return list;
+  return list.concat([{ id: PS5.id, name: PS5.name, color: PS5.color, icon: '/app-icon?id=' + PS5.id }]);
+}
 // The TV's own app API; on the Mac (tools/dev.sh) it's unset and launching only logs.
 // Called on the TV's network address: from 127.0.0.1 the TV answers launches with 401 (tried 2026-10-20).
 var TV_API = process.env.ANKA_DEV_DIR ? null : '/api/v2/applications/';
@@ -131,18 +140,18 @@ function tvApi(method, id, cb) {
 
 function installedApps(cb) {
   // On the Mac: the whole catalogue, with the web icons.
-  if (!TV_API) return cb(APP_CATALOGUE.map(function (app) {
+  if (!TV_API) return cb(withInputs(APP_CATALOGUE.map(function (app) {
     return app.web ? { id: app.id, name: app.name, color: app.color, icon: '/app-icon?id=' + app.id } : app;
-  }));
+  })));
   tizenApps(function (err, list) {
-    if (err) return installedFromRest(cb);
-    cb(APP_CATALOGUE.map(function (app) {
+    if (err) return installedFromRest(function (l) { cb(withInputs(l)); });
+    cb(withInputs(APP_CATALOGUE.map(function (app) {
       var t = tizenAppFor(app, list);
       if (!t) return null;
       var a = { id: app.id, name: app.name, color: app.color };
       if ((t.iconPath && !app.noIcon && fs.existsSync(t.iconPath)) || app.web) a.icon = '/app-icon?id=' + app.id;
       return a;
-    }).filter(function (a) { return a; }));
+    }).filter(function (a) { return a; })));
   });
 }
 
@@ -732,9 +741,17 @@ function handle(req, res) {
   }
   if (u.pathname === '/apps') return installedApps(function (list) { replyJson(res, list); });
   if (u.pathname === '/launch' && req.method === 'POST') {
-    var app = APP_CATALOGUE.filter(function (a) { return a.id === u.query.id; })[0];
+    var app = APP_CATALOGUE.concat([PS5]).filter(function (a) { return a.id === u.query.id; })[0];
     if (!app) return reply(res, 400, 'text/plain', 'unknown app');
     log('launch ' + app.name);
+    if (app.input) {
+      var input = (readData().settings || {}).ps5Input;
+      if (!/^KEY_HDMI\d$/.test(input || '')) return reply(res, 409, 'text/plain', 'set the PS5 input in the dashboard');
+      return remoteKey(input, function (err) {
+        if (err) return fail(res, 'switch to ' + app.name, err);
+        replyJson(res, { launched: true, input: input });
+      });
+    }
     if (!TV_API) return replyJson(res, { launched: false, dev: true });
     // The REST API answers 401 to the TV itself, so Tizen's own launcher goes first.
     return tizenApps(function (err, list) {
@@ -755,7 +772,7 @@ function handle(req, res) {
     });
   }
   if (u.pathname === '/app-icon') {
-    var iconApp = APP_CATALOGUE.filter(function (a) { return a.id === u.query.id; })[0];
+    var iconApp = APP_CATALOGUE.concat([PS5]).filter(function (a) { return a.id === u.query.id; })[0];
     return tizenApps(function (err, list) {
       var t = !err && iconApp && tizenAppFor(iconApp, list);
       var send = function (err2, png) {
@@ -822,15 +839,6 @@ function handle(req, res) {
         try { for (var m in webapis[k]) names.push(m); } catch (e) { names.push('error: ' + e); }
         out.webapisApis[k] = names.slice(0, 40);
       });
-    }
-    // ?notify=1: try a system notification, shown over any app.
-    if (u.query.notify && typeof tizen !== 'undefined') {
-      try {
-        var Note = tizen.UserNotification || tizen.StatusNotification;
-        var note = new Note('SIMPLE', 'anka tv', { content: 'Sistem bildirimi denemesi' });
-        tizen.notification.post(note);
-        out.notify = 'posted';
-      } catch (e) { out.notify = 'failed: ' + e.name + ' ' + e.message; }
     }
     return replyJson(res, out);
   }

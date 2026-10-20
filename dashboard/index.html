@@ -266,6 +266,7 @@
           </form>
         </section>
       </div>
+      <button type="button" id="ps5-go" class="primary" style="width: 100%; height: 52px; margin-bottom: 16px; background: #0070d1; border-color: #0070d1; color: #fff" hidden>PlayStation 5'e geç</button>
       <section class="surface">
         <div class="remote">
           <button class="blank" tabindex="-1"></button><button data-key="UP" aria-label="Yukarı">▲</button><button data-key="CH_UP" aria-label="Kanal yukarı">CH+</button>
@@ -331,6 +332,14 @@
           <button type="button" data-motion="full">Tam</button><button type="button" data-motion="reduced">Sade</button>
         </div>
         <div class="hint">TV kasarsa hareketi "Sade" yap.</div>
+      </section>
+      <section>
+        <h2>PlayStation 5</h2>
+        <div class="toggle" role="group" aria-labelledby="ps5-label">
+          <span id="ps5-label">Hangi girişte?</span>
+          <button type="button" data-ps5="">Yok</button><button type="button" data-ps5="KEY_HDMI1">1</button><button type="button" data-ps5="KEY_HDMI2">2</button><button type="button" data-ps5="KEY_HDMI3">3</button><button type="button" data-ps5="KEY_HDMI4">4</button>
+        </div>
+        <div class="hint">Seçince TV'nin Uygulamalar satırına bir PS5 kartı gelir; Kumanda'da da "PS5'e geç" çıkar.</div>
       </section>
       <section>
         <h2>Açılış</h2>
@@ -716,7 +725,25 @@
     Array.prototype.forEach.call(document.querySelectorAll('[data-live]'), function (b) {
       b.classList.toggle('on', b.dataset.live === (settings.liveAlerts === false ? 'off' : 'on'));
     });
+    Array.prototype.forEach.call(document.querySelectorAll('[data-ps5]'), function (b) {
+      b.classList.toggle('on', b.dataset.ps5 === (settings.ps5Input || ''));
+    });
+    $('ps5-go').hidden = !settings.ps5Input;
   }
+  Array.prototype.forEach.call(document.querySelectorAll('[data-ps5]'), function (b) {
+    b.addEventListener('click', function () {
+      settings.ps5Input = b.dataset.ps5;
+      renderToggles();
+      post('/settings', { ps5Input: settings.ps5Input })
+        .then(function () { return post('/cmd', 'refresh'); })
+        .then(function () { toast(settings.ps5Input ? 'PS5: HDMI ' + settings.ps5Input.slice(-1) : 'PS5 kartı kaldırıldı'); })
+        .catch(function (e) { toast('Kaydedilemedi: ' + e.message, true); });
+    });
+  });
+  $('ps5-go').addEventListener('click', function () {
+    post('/launch?id=ps5', '').then(function () { toast('TV PlayStation 5\'e geçiyor'); })
+      .catch(function (e) { toast('Geçilemedi: ' + e.message, true); });
+  });
   Array.prototype.forEach.call(document.querySelectorAll('[data-live]'), function (b) {
     b.addEventListener('click', function () {
       settings.liveAlerts = b.dataset.live === 'on';

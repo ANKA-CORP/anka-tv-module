@@ -348,9 +348,10 @@ function renderHeroText(s) {
 function renderAppHero(a) {
   var tags = $('hero-tags');
   tags.innerHTML = '';
-  tags.appendChild(el('span', 'pill app', 'Uygulama'));
+  var input = a.id === 'ps5';
+  tags.appendChild(el('span', 'pill app', input ? 'HDMI girişi' : 'Uygulama'));
   $('hero-name').textContent = a.name;
-  $('hero-title').textContent = 'Açmak için OK';
+  $('hero-title').textContent = input ? 'Geçmek için OK' : 'Açmak için OK';
   $('hero-meta').textContent = 'Geri dönmek için: Home → anka tv';
 }
 
@@ -533,7 +534,7 @@ function poll() {
 // GitHub's raw files are at most 5 minutes old; jsDelivr's @main can be hours behind.
 var VERSION_URL = 'https://raw.githubusercontent.com/ANKA-CORP/anka-tv-module/main/version.json';
 // tools/publish.sh writes the published version here.
-var PAGE_VERSION = '0.49.0';
+var PAGE_VERSION = '0.50.0';
 
 // The number in "0.34.0": publishes only count up.
 function versionNumber(v) { return parseInt(String(v).split('.')[1], 10) || 0; }

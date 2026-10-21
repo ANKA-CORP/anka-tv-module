@@ -101,7 +101,7 @@ function loadRows() {
   return Promise.all([Favourites.load(), loadSettings()]).then(loadRowsFor);
 }
 
-var THEMES = ['night', 'ocean', 'sunset', 'lavender', 'oled'];
+var THEMES = ['night', 'ocean', 'sunset', 'lavender', 'oled', 'glass', 'neon', 'aurora', 'brutal'];
 var DEFAULT_THEME = 'sunset';
 
 function loadSettings() {
@@ -199,28 +199,40 @@ function loadWidgets() {
 function renderWidgets() {
   var box = $('widgets');
   box.innerHTML = '';
+  var two = function (n) { return (n < 10 ? '0' : '') + n; };
+  var faces = function (urls) {
+    var f = el('div', 'faces');
+    urls.slice(0, 3).forEach(function (u) { if (u) { var img = el('img'); img.src = u; f.appendChild(img); } });
+    return f;
+  };
+  var text = function (label, value) {
+    var t = el('div', 'w-text');
+    t.appendChild(el('small', '', label));
+    t.appendChild(el('b', '', value));
+    return t;
+  };
   if (nextBoss && nextBoss.at > Date.now()) {
-    var w = el('div', 'widget');
-    var faces = el('div', 'faces');
-    nextBoss.bosses.forEach(function (b) { var img = el('img'); img.src = b.image; faces.appendChild(img); });
-    w.appendChild(faces);
+    var w = el('div', 'widget boss');
     var d = new Date(nextBoss.at);
-    var mins = Math.round((nextBoss.at - Date.now()) / 60000);
-    w.appendChild(el('b', '', nextBoss.bosses.map(function (b) { return b.name; }).join(', ')));
-    w.appendChild(el('span', '', (d.getHours() < 10 ? '0' : '') + d.getHours() + ':' + (d.getMinutes() < 10 ? '0' : '') + d.getMinutes() +
-      ' · ' + (mins < 60 ? mins + ' dk' : Math.floor(mins / 60) + ' sa ' + (mins % 60) + ' dk')));
+    var mins = Math.max(0, Math.round((nextBoss.at - Date.now()) / 60000));
+    w.appendChild(faces(nextBoss.bosses.map(function (b) { return b.image; })));
+    w.appendChild(text('Sıradaki boss · ' + two(d.getHours()) + ':' + two(d.getMinutes()), nextBoss.bosses.map(function (b) { return b.name; }).join(', ')));
+    // The ring fills over the last hour before the spawn.
+    var ring = el('div', 'ring');
+    ring.style.setProperty('--p', String(Math.max(0, Math.min(1, 1 - mins / 60))));
+    var label = el('span', '', mins < 60 ? String(mins) : Math.floor(mins / 60) + 's');
+    label.appendChild(el('i', '', mins < 60 ? 'dk' : (mins % 60) + 'dk'));
+    ring.appendChild(label);
+    w.appendChild(ring);
     box.appendChild(w);
   }
   var fav = rows.filter(function (r) { return r.id === 'fav'; })[0];
   var live = fav ? fav.items.filter(function (s) { return s.live; }) : [];
   if (live.length) {
-    var lw = el('div', 'widget');
-    var lf = el('div', 'faces');
-    live.slice(0, 3).forEach(function (s) { if (s.avatar) { var img = el('img'); img.src = s.avatar; lf.appendChild(img); } });
-    lw.appendChild(lf);
+    var lw = el('div', 'widget live');
+    lw.appendChild(faces(live.map(function (s) { return s.avatar; })));
+    lw.appendChild(text('Favorilerden canlı', live.length === 1 ? live[0].name : live.slice(0, 2).map(function (s) { return s.name; }).join(', ') + (live.length > 2 ? ' +' + (live.length - 2) : '')));
     lw.appendChild(el('span', 'live-dot'));
-    lw.appendChild(el('b', '', live.length === 1 ? live[0].name : live.length + ' favori'));
-    lw.appendChild(el('span', '', 'canlı'));
     box.appendChild(lw);
   }
 }
@@ -593,7 +605,7 @@ function poll() {
 // GitHub's raw files are at most 5 minutes old; jsDelivr's @main can be hours behind.
 var VERSION_URL = 'https://raw.githubusercontent.com/ANKA-CORP/anka-tv-module/main/version.json';
 // tools/publish.sh writes the published version here.
-var PAGE_VERSION = '0.73.0';
+var PAGE_VERSION = '0.74.0';
 
 // The number in "0.34.0": publishes only count up.
 function versionNumber(v) { return parseInt(String(v).split('.')[1], 10) || 0; }

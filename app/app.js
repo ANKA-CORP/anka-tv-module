@@ -541,6 +541,14 @@ function activate() {
 // ---- the Web tile: a page set from the dashboard, full screen in a frame; Back closes it.
 
 function openWeb(name, url) {
+  // A direct HLS stream (.m3u8) plays in our own player, through the service.
+  if (/\.m3u8(\?|#|$)/i.test(url)) {
+    log('web: ' + name + ' (hls)');
+    if (Player.isOpen()) Player.close();
+    var host = url.replace(/^https?:\/\/([^\/]+).*$/, '$1');
+    return Player.open([{ kind: 'stream', slug: '', key: 'web', name: name, title: host, live: true, viewers: 0, src: SERVICE + '/hls?url=' + encodeURIComponent(url) }], 0,
+      function () { updateFocus(true); refresh(); });
+  }
   var box = $('web');
   box.innerHTML = '';
   var frame = el('iframe');
@@ -688,7 +696,7 @@ function poll() {
 // GitHub's raw files are at most 5 minutes old; jsDelivr's @main can be hours behind.
 var VERSION_URL = 'https://raw.githubusercontent.com/ANKA-CORP/anka-tv-module/main/version.json';
 // tools/publish.sh writes the published version here.
-var PAGE_VERSION = '0.82.0';
+var PAGE_VERSION = '0.83.0';
 
 // The number in "0.34.0": publishes only count up.
 function versionNumber(v) { return parseInt(String(v).split('.')[1], 10) || 0; }

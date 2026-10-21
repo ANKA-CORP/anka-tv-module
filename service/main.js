@@ -20,6 +20,7 @@
 //   GET /autolaunch, POST /autolaunch   whether TizenBrew opens anka tv when it starts (its own config file)
 //   GET /sleep, POST /sleep             the sleep timer: {"minutes": 30} sets it, 0 clears it; GET says when
 //   GET /web, POST /web                 the Web tile: {"name": "…", "url": "https://…"} (an empty url removes it)
+//   GET /hls?url=…                      an HLS playlist or segment fetched for the page (no CORS on the TV), playlists rewritten to come here too
 //   GET /recent                         the channels watched last, newest first (from what the page reports)
 //   GET /events                         server-sent events for open dashboards: settings, favourites, state, notice
 //   GET /bosses, POST /boss-test        upcoming Black Desert (EU) boss spawns; send the next one's alert now
@@ -35,7 +36,7 @@ var url = require('url');
 // Not 8085: the spike module's service may still hold it until TizenBrew restarts.
 var PORT = Number(process.env.ANKA_PORT) || 8090;   // another port only in tools/test.sh
 // tools/publish.sh writes the published version here.
-var SERVICE_VERSION = '0.82.0 (e819fe7)';
+var SERVICE_VERSION = '0.83.0 (bd6c158)';
 var UA = 'Mozilla/5.0 (SMART-TV; Linux; Tizen 6.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/76.0.3809.146 TV Safari/537.36';
 var CACHE_MS = 20000;
 // TizenBrew keeps its own config in /home/owner/share; tools/dev.sh points these elsewhere on the Mac.
@@ -499,6 +500,30 @@ function rememberWatched(slug) {
   writeData(data);
 }
 
+// ---- HLS for the Web tile: the page can't fetch most streams itself (CORS), so the service does. Playlists get
+// every URI pointed back here; segments and keys are piped through. No headers are faked: a stream that only plays
+// on its own site stays that way.
+function hlsGet(target, cb, hops) {
+  var mod = /^https:/.test(target) ? https : http;
+  mod.get(target, { headers: { 'User-Agent': UA } }, function (res) {
+    if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location && (hops || 0) < 3) {
+      res.resume();
+      return hlsGet(url.resolve(target, res.headers.location), cb, (hops || 0) + 1);
+    }
+    cb(null, res, target);
+  }).on('error', cb);
+}
+
+function rewritePlaylist(text, base) {
+  var here = function (uri) { return '/hls?url=' + encodeURIComponent(url.resolve(base, uri)); };
+  return text.split('\n').map(function (line) {
+    var l = line.trim();
+    if (!l) return line;
+    if (l.charAt(0) !== '#') return here(l);
+    return line.replace(/URI="([^"]+)"/g, function (m, uri) { return 'URI="' + here(uri) + '"'; });
+  }).join('\n');
+}
+
 function newlyLive(seen, channels) {
   return channels.filter(function (c) {
     var before = seen[c.slug];
@@ -766,6 +791,23 @@ function handle(req, res) {
   }
   if (u.pathname === '/events') return subscribe(req, res);
   if (u.pathname === '/recent') return replyJson(res, readData().recent || []);
+  if (u.pathname === '/hls') {
+    if (!/^https?:\/\/[^\s]+$/.test(u.query.url || '')) return reply(res, 400, 'text/plain', 'url=http(s)://…');
+    return hlsGet(u.query.url, function (err, up, finalUrl) {
+      if (err) return fail(res, 'hls', err);
+      var type = up.headers['content-type'] || '';
+      if (/mpegurl/i.test(type) || /\.m3u8(\?|$)/i.test(finalUrl)) {
+        var chunks = [];
+        up.on('data', function (c) { chunks.push(c); });
+        up.on('end', function () {
+          reply(res, up.statusCode, 'application/vnd.apple.mpegurl', rewritePlaylist(Buffer.concat(chunks).toString(), finalUrl));
+        });
+        return;
+      }
+      res.writeHead(up.statusCode, { 'Content-Type': type || 'application/octet-stream', 'Access-Control-Allow-Origin': '*' });
+      up.pipe(res);
+    });
+  }
   if (u.pathname === '/web') {
     if (req.method === 'POST') {
       return readBody(req, function (b) {

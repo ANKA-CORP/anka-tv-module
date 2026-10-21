@@ -93,7 +93,8 @@ var Player = (function () {
       reload('error ' + d.details);
     });
     // A fresh master playlist each time: its token expires after about ten minutes.
-    hls.loadSource(SERVICE + '/master.m3u8?slug=' + encodeURIComponent(s.slug) + '&t=' + Date.now());
+    // A Web tile's stream comes with its own address; Kick channels get a fresh master playlist each time.
+    hls.loadSource(s.src || SERVICE + '/master.m3u8?slug=' + encodeURIComponent(s.slug) + '&t=' + Date.now());
     hls.attachMedia(video);
 
     lastTime = 0;

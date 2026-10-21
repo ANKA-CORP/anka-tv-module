@@ -5,6 +5,7 @@
 var DEFAULT_FAVOURITES = ['zeitnot', 'nuriben'];
 var REFRESH_MS = 60000;
 var startedAt = Date.now();
+var scriptAt = Math.round(performance.now());
 var LONG_PRESS_MS = 650;
 // Per row kind: cards fully on screen (one more peeks in), card width + margin, row height.
 var LAYOUT = {
@@ -175,8 +176,11 @@ function refresh() {
     var stay = fresh.map(function (r) { return r.id; }).indexOf(focusedRowId);
     if (stay >= 0) focusRow = stay;
     rows = fresh;
+    var first = !rendered;
     render();
     loadWidgets();
+    // How long the first screen took, counted from when TizenBrew opened the page (includes the bootstrap's fetches).
+    if (first) log('startup: rows on screen after ' + Math.round(performance.now()) + ' ms (script ran at ' + scriptAt + ' ms)');
     Splash.end();
   }).catch(function (e) {
     log('refresh failed: ' + e);
@@ -641,7 +645,7 @@ function poll() {
 // GitHub's raw files are at most 5 minutes old; jsDelivr's @main can be hours behind.
 var VERSION_URL = 'https://raw.githubusercontent.com/ANKA-CORP/anka-tv-module/main/version.json';
 // tools/publish.sh writes the published version here.
-var PAGE_VERSION = '0.76.0';
+var PAGE_VERSION = '0.77.0';
 
 // The number in "0.34.0": publishes only count up.
 function versionNumber(v) { return parseInt(String(v).split('.')[1], 10) || 0; }

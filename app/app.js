@@ -129,7 +129,7 @@ function loadRowsFor() {
       return slugs.length ? api('/channels?slugs=' + slugs.map(encodeURIComponent).join(',')) : [];
     }).catch(function () { return []; })
   ]).then(function (r) {
-    var apps = r[0].map(function (a) { return { kind: 'app', key: a.id, id: a.id, name: a.name, color: a.color, tile: a.tile, bare: a.bare, icon: a.icon }; });
+    var apps = r[0].map(function (a) { return { kind: 'app', key: a.id, id: a.id, name: a.name, color: a.color, plate: a.plate, icon: a.icon }; });
     var stream = function (s) { s.kind = 'stream'; s.key = s.slug; return s; };
     var favItems = r[1].map(stream).sort(function (a, b) { return (b.live - a.live) || (b.viewers - a.viewers); });
     var list = [];
@@ -241,11 +241,11 @@ function renderWidgets() {
 
 function appCard(a) {
   var c = el('div', 'card app');
-  var tile = a.tile || a.color;
-  c.style.background = 'linear-gradient(135deg, ' + tile + ' 0%, ' + shade(tile) + ' 100%)';
+  c.style.background = 'linear-gradient(135deg, ' + a.color + ' 0%, ' + shade(a.color) + ' 100%)';
   // The app's own icon, read from the TV by the service (none of it is in this repo).
   if (a.icon) {
-    var img = el('img', 'app-icon' + (a.bare ? ' bare' : ''));
+    var img = el('img', 'app-icon' + (a.plate ? ' plated' : ''));
+    if (a.plate) img.style.backgroundColor = a.plate;
     img.onerror = function () { c.classList.remove('has-icon'); c.removeChild(img); };
     img.src = SERVICE + a.icon;
     c.classList.add('has-icon');
@@ -410,10 +410,10 @@ function renderAppHero(a) {
   var name = $('hero-name');
   name.innerHTML = '';
   if (a.icon) {
-    var img = el('img', 'app' + (a.bare ? ' bare' : ''));
+    var img = el('img', 'app' + (a.plate ? ' plated' : ''));
     img.src = SERVICE + a.icon;
-    if (a.bare) img.style.filter = 'drop-shadow(0 0 22px ' + a.color + ')';
-    else img.style.boxShadow = '0 0 0 3px ' + a.color + ', 0 0 44px ' + a.color;
+    if (a.plate) img.style.backgroundColor = a.plate;
+    img.style.boxShadow = '0 0 0 3px ' + a.color + ', 0 0 44px ' + a.color;
     name.appendChild(img);
   }
   name.appendChild(document.createTextNode(a.name));
@@ -605,7 +605,7 @@ function poll() {
 // GitHub's raw files are at most 5 minutes old; jsDelivr's @main can be hours behind.
 var VERSION_URL = 'https://raw.githubusercontent.com/ANKA-CORP/anka-tv-module/main/version.json';
 // tools/publish.sh writes the published version here.
-var PAGE_VERSION = '0.74.0';
+var PAGE_VERSION = '0.75.0';
 
 // The number in "0.34.0": publishes only count up.
 function versionNumber(v) { return parseInt(String(v).split('.')[1], 10) || 0; }

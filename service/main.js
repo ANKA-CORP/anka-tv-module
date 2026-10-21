@@ -34,7 +34,7 @@ var url = require('url');
 // Not 8085: the spike module's service may still hold it until TizenBrew restarts.
 var PORT = Number(process.env.ANKA_PORT) || 8090;   // another port only in tools/test.sh
 // tools/publish.sh writes the published version here.
-var SERVICE_VERSION = '0.74.0 (3b713a7)';
+var SERVICE_VERSION = '0.75.0 (3511b64)';
 var UA = 'Mozilla/5.0 (SMART-TV; Linux; Tizen 6.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/76.0.3809.146 TV Safari/537.36';
 var CACHE_MS = 20000;
 // TizenBrew keeps its own config in /home/owner/share; tools/dev.sh points these elsewhere on the Mac.
@@ -82,8 +82,8 @@ function writeData(data) {
 // Well-known Samsung app IDs; /apps keeps those installed on this TV. Colours are for our own tiles.
 var APP_CATALOGUE = [
   // YouTube's icon on the TV is Tizen's generic placeholder and Prime Video's file is missing: their sites' icons instead.
-  // YouTube's logo is red on transparent: on a dark tile, without a plate (tile is the tile's own colour).
-  { id: '111299001912', tizen: '9Ur5IzDKqV.TizenYouTube', name: 'YouTube', color: '#ff0033', tile: '#1c1c1c', bare: true, noIcon: true,
+  // YouTube's logo is red on transparent: it gets a dark square like the other apps' icons (`plate`).
+  { id: '111299001912', tizen: '9Ur5IzDKqV.TizenYouTube', name: 'YouTube', color: '#ff0033', plate: '#0f0f0f', noIcon: true,
     web: 'https://www.gstatic.com/youtube/img/branding/favicon/favicon_192x192.png' },
   { id: '3201907018807', tizen: 'org.tizen.netflix-app', name: 'Netflix', color: '#e50914' },
   { id: '3201910019365', tizen: 'org.tizen.primevideo', name: 'Prime Video', color: '#1a98ff', web: 'www.primevideo.com' },
@@ -145,14 +145,14 @@ function tvApi(method, id, cb) {
 function installedApps(cb) {
   // On the Mac: the whole catalogue, with the web icons.
   if (!TV_API) return cb(withInputs(APP_CATALOGUE.map(function (app) {
-    return app.web ? { id: app.id, name: app.name, color: app.color, tile: app.tile, bare: app.bare, icon: '/app-icon?id=' + app.id } : app;
+    return app.web ? { id: app.id, name: app.name, color: app.color, plate: app.plate, icon: '/app-icon?id=' + app.id } : app;
   })));
   tizenApps(function (err, list) {
     if (err) return installedFromRest(function (l) { cb(withInputs(l)); });
     cb(withInputs(APP_CATALOGUE.map(function (app) {
       var t = tizenAppFor(app, list);
       if (!t) return null;
-      var a = { id: app.id, name: app.name, color: app.color, tile: app.tile, bare: app.bare };
+      var a = { id: app.id, name: app.name, color: app.color, plate: app.plate };
       if ((t.iconPath && !app.noIcon && fs.existsSync(t.iconPath)) || app.web) a.icon = '/app-icon?id=' + app.id;
       return a;
     }).filter(function (a) { return a; })));

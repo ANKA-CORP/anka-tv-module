@@ -34,7 +34,7 @@ var url = require('url');
 // Not 8085: the spike module's service may still hold it until TizenBrew restarts.
 var PORT = Number(process.env.ANKA_PORT) || 8090;   // another port only in tools/test.sh
 // tools/publish.sh writes the published version here.
-var SERVICE_VERSION = '0.72.0 (280d3e0)';
+var SERVICE_VERSION = '0.73.0 (e7cfc81)';
 var UA = 'Mozilla/5.0 (SMART-TV; Linux; Tizen 6.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/76.0.3809.146 TV Safari/537.36';
 var CACHE_MS = 20000;
 // TizenBrew keeps its own config in /home/owner/share; tools/dev.sh points these elsewhere on the Mac.
@@ -82,7 +82,9 @@ function writeData(data) {
 // Well-known Samsung app IDs; /apps keeps those installed on this TV. Colours are for our own tiles.
 var APP_CATALOGUE = [
   // YouTube's icon on the TV is Tizen's generic placeholder and Prime Video's file is missing: their sites' icons instead.
-  { id: '111299001912', tizen: '9Ur5IzDKqV.TizenYouTube', name: 'YouTube', color: '#ff0033', noIcon: true, web: 'www.youtube.com' },
+  // YouTube's logo is red on transparent: on a dark tile, without a plate (tile is the tile's own colour).
+  { id: '111299001912', tizen: '9Ur5IzDKqV.TizenYouTube', name: 'YouTube', color: '#ff0033', tile: '#1c1c1c', bare: true, noIcon: true,
+    web: 'https://www.gstatic.com/youtube/img/branding/favicon/favicon_192x192.png' },
   { id: '3201907018807', tizen: 'org.tizen.netflix-app', name: 'Netflix', color: '#e50914' },
   { id: '3201910019365', tizen: 'org.tizen.primevideo', name: 'Prime Video', color: '#1a98ff', web: 'www.primevideo.com' },
   { id: '3201901017640', tizen: 'MCmYXNxgcu.DisneyPlus', name: 'Disney+', color: '#113ccf' },
@@ -143,14 +145,14 @@ function tvApi(method, id, cb) {
 function installedApps(cb) {
   // On the Mac: the whole catalogue, with the web icons.
   if (!TV_API) return cb(withInputs(APP_CATALOGUE.map(function (app) {
-    return app.web ? { id: app.id, name: app.name, color: app.color, icon: '/app-icon?id=' + app.id } : app;
+    return app.web ? { id: app.id, name: app.name, color: app.color, tile: app.tile, bare: app.bare, icon: '/app-icon?id=' + app.id } : app;
   })));
   tizenApps(function (err, list) {
     if (err) return installedFromRest(function (l) { cb(withInputs(l)); });
     cb(withInputs(APP_CATALOGUE.map(function (app) {
       var t = tizenAppFor(app, list);
       if (!t) return null;
-      var a = { id: app.id, name: app.name, color: app.color };
+      var a = { id: app.id, name: app.name, color: app.color, tile: app.tile, bare: app.bare };
       if ((t.iconPath && !app.noIcon && fs.existsSync(t.iconPath)) || app.web) a.icon = '/app-icon?id=' + app.id;
       return a;
     }).filter(function (a) { return a; })));
@@ -260,10 +262,12 @@ function tizenApps(cb) {
 }
 
 // An app's icon from its website (Google's favicon service), fetched at runtime and kept in memory.
+// `web` is an icon's URL, or a site whose favicon to use.
 function webIcon(domain, cb) {
   var key = 'icon:' + domain;
   if (cache[key]) return cb(null, cache[key]);
-  https.get('https://t1.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https://' + domain + '&size=256', function (res) {
+  var src = /^https:/.test(domain) ? domain : 'https://t1.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=https://' + domain + '&size=256';
+  https.get(src, function (res) {
     var chunks = [];
     res.on('data', function (c) { chunks.push(c); });
     res.on('end', function () {

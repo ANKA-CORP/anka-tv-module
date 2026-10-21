@@ -34,7 +34,7 @@ var url = require('url');
 // Not 8085: the spike module's service may still hold it until TizenBrew restarts.
 var PORT = Number(process.env.ANKA_PORT) || 8090;   // another port only in tools/test.sh
 // tools/publish.sh writes the published version here.
-var SERVICE_VERSION = '0.78.0 (a8bc84e)';
+var SERVICE_VERSION = '0.79.0 (09fb45b)';
 var UA = 'Mozilla/5.0 (SMART-TV; Linux; Tizen 6.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/76.0.3809.146 TV Safari/537.36';
 var CACHE_MS = 20000;
 // TizenBrew keeps its own config in /home/owner/share; tools/dev.sh points these elsewhere on the Mac.
@@ -248,18 +248,40 @@ function remoteKey(key, cb) {
 }
 
 // TizenBrew hands the service Tizen's device API (the page doesn't get it). Installed apps, cached for 10 minutes.
-function tizenApps(cb) {
-  if (typeof tizen === 'undefined' || !tizen || !tizen.application) return cb(new Error('no Tizen API'));
-  var hit = cache.tizenApps;
-  if (hit && Date.now() - hit.at < 600000) return cb(null, hit.data);
+// Listing the TV's ~400 apps takes Tizen about 13 s, and the first screen waited for it. So the list is kept in
+// `shared` (across service reloads) and in the data file (across TV restarts): callers get the last one at once,
+// and a fresh one is fetched in the background when it's older than 10 minutes.
+var appsLoading = null;
+
+function fetchTizenApps(cb) {
+  if (appsLoading) return appsLoading.push(cb);
+  appsLoading = [cb];
+  var done = function (err, data) { var l = appsLoading; appsLoading = null; l.forEach(function (f) { f(err, data); }); };
   try {
     tizen.application.getAppsInfo(function (list) {
       var data = list.map(function (a) { return { id: a.id, name: a.name, packageId: a.packageId, iconPath: a.iconPath }; });
-      cache.tizenApps = { at: Date.now(), data: data };
-      cb(null, data);
-    }, function (e) { cb(new Error(e.name + ': ' + e.message)); });
-  } catch (e) { cb(e); }
+      shared.tizenApps = { at: Date.now(), data: data };
+      var d = readData();
+      d.tizenApps = data;
+      writeData(d);
+      done(null, data);
+    }, function (e) { done(new Error(e.name + ': ' + e.message)); });
+  } catch (e) { done(e); }
 }
+
+function tizenApps(cb) {
+  if (typeof tizen === 'undefined' || !tizen || !tizen.application) return cb(new Error('no Tizen API'));
+  var hit = shared.tizenApps;
+  if (!hit) {
+    var saved = readData().tizenApps;
+    if (saved && saved.length) hit = shared.tizenApps = { at: 0, data: saved };
+  }
+  if (!hit) return fetchTizenApps(cb);
+  if (Date.now() - hit.at > 600000) fetchTizenApps(function () {});
+  cb(null, hit.data);
+}
+// Warm it up now rather than on the first screen's request.
+setTimeout(function () { tizenApps(function () {}); }, 0);
 
 // An app's icon from its website (Google's favicon service), fetched at runtime and kept in memory.
 // `web` is an icon's URL, or a site whose favicon to use.

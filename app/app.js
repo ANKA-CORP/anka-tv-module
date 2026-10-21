@@ -121,10 +121,22 @@ function loadSettings() {
   }).catch(function (e) { log('settings not loaded: ' + e); });
 }
 
+// The app row shouldn't hold up the first screen: if the list takes longer than 1.5 s, the last one seen is used.
+function appsQuickly() {
+  var last = [];
+  try { last = JSON.parse(localStorage.getItem('anka-apps') || '[]'); } catch (e) {}
+  var fresh = api('/apps').then(function (l) {
+    try { localStorage.setItem('anka-apps', JSON.stringify(l)); } catch (e) {}
+    return l;
+  }).catch(function (e) { log('apps not loaded: ' + e); return last; });
+  if (!last.length) return fresh;
+  return Promise.race([fresh, new Promise(function (resolve) { setTimeout(function () { resolve(last); }, 1500); })]);
+}
+
 function loadRowsFor() {
   var favs = Favourites.list();
   return Promise.all([
-    api('/apps').catch(function (e) { log('apps not loaded: ' + e); return []; }),
+    appsQuickly(),
     favs.length ? api('/channels?slugs=' + favs.map(encodeURIComponent).join(',')) : Promise.resolve([]),
     api('/streams?language=tr&limit=30'),
     api('/streams?limit=30'),
@@ -645,7 +657,7 @@ function poll() {
 // GitHub's raw files are at most 5 minutes old; jsDelivr's @main can be hours behind.
 var VERSION_URL = 'https://raw.githubusercontent.com/ANKA-CORP/anka-tv-module/main/version.json';
 // tools/publish.sh writes the published version here.
-var PAGE_VERSION = '0.78.0';
+var PAGE_VERSION = '0.79.0';
 
 // The number in "0.34.0": publishes only count up.
 function versionNumber(v) { return parseInt(String(v).split('.')[1], 10) || 0; }

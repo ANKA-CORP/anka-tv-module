@@ -20,6 +20,7 @@
 //   GET /autolaunch, POST /autolaunch   whether TizenBrew opens anka tv when it starts (its own config file)
 //   GET /sleep, POST /sleep             the sleep timer: {"minutes": 30} sets it, 0 clears it; GET says when
 //   GET /web, POST /web                 the Web tile: {"name": "…", "url": "https://…"} (an empty url removes it)
+//   GET /web/check?url=…                whether that address will open on the TV: {"ok": true, "kind": "hls", "height": 1080} or {"ok": false, "reason": "…"} ("slow": true when it only took too long)
 //   GET /hls?url=…                      an HLS playlist or segment fetched for the page (no CORS on the TV), playlists rewritten to come here too
 //   GET /recent                         the channels watched last, newest first (from what the page reports)
 //   GET /events                         server-sent events for open dashboards: settings, favourites, state, notice
@@ -36,7 +37,7 @@ var url = require('url');
 // Not 8085: the spike module's service may still hold it until TizenBrew restarts.
 var PORT = Number(process.env.ANKA_PORT) || 8090;   // another port only in tools/test.sh
 // tools/publish.sh writes the published version here.
-var SERVICE_VERSION = '0.83.0 (bd6c158)';
+var SERVICE_VERSION = '0.90.0 (d78a131)';
 var UA = 'Mozilla/5.0 (SMART-TV; Linux; Tizen 6.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/76.0.3809.146 TV Safari/537.36';
 var CACHE_MS = 20000;
 // TizenBrew keeps its own config in /home/owner/share; tools/dev.sh points these elsewhere on the Mac.
@@ -524,6 +525,71 @@ function rewritePlaylist(text, base) {
   }).join('\n');
 }
 
+// Whether a Web tile's address will open, tried from the TV the way the page would: for a stream (.m3u8) the
+// playlist, its variants (all at once: one quality's playlist can be slow while another's is quick) and a variant's
+// newest segment; for a page, whether it answers and allows being framed.
+function checkWeb(target, cb) {
+  var done = false;
+  var finish = function (r) { if (!done) { done = true; clearTimeout(timer); cb(r); } };
+  // Some broadcasters' CDNs take several seconds per playlist now and then, so slow isn't the same as broken.
+  var timer = setTimeout(function () { finish({ ok: false, slow: true, reason: 'Sunucu çok yavaş: 20 saniyede tamamlanmadı; TV\'de geç açılabilir ya da hiç açılmayabilir' }); }, 20000);
+  var refused = function (code) {
+    if (code === 401 || code === 403) return 'Sunucu engelliyor (' + code + '): yayın yalnızca kendi sitesinde ya da kendi ülkesinde açılıyor olabilir';
+    if (code === 404 || code === 410) return 'Bulunamadı (' + code + '): adres eskimiş olabilir';
+    return 'Sunucu hata verdi (' + code + ')';
+  };
+  // The first `limit` bytes of an address (after redirects); a failure goes to `fail` (by default, the answer).
+  var get = function (u, limit, next, fail) {
+    fail = fail || finish;
+    hlsGet(u, function (err, res, finalUrl) {
+      if (err) return fail({ ok: false, reason: 'Bağlanılamadı (' + (err.code || err.message || err) + ')' });
+      if (res.statusCode >= 400) { res.resume(); return fail({ ok: false, reason: refused(res.statusCode) }); }
+      var chunks = [], size = 0, ended = false;
+      var end = function () { if (!ended) { ended = true; next(res, Buffer.concat(chunks).toString(), finalUrl); } };
+      res.on('data', function (c) { chunks.push(c); size += c.length; if (size >= limit) { end(); res.destroy(); } });
+      res.on('end', end);
+      res.on('error', function (e) { if (!ended) fail({ ok: false, reason: 'Bağlantı koptu (' + (e.code || e.message) + ')' }); });
+    });
+  };
+  var uris = function (text) { return text.split('\n').map(function (l) { return l.trim(); }).filter(function (l) { return l && l.charAt(0) !== '#'; }); };
+  // A media playlist plays if it isn't DRM-locked and its newest segment downloads.
+  var media = function (list, base, height, fail) {
+    if (/METHOD=SAMPLE-AES|KEYFORMAT="(urn|com\.)/i.test(list)) return fail({ ok: false, kind: 'hls', reason: 'Şifreli (DRM) yayın: oynatılamaz' });
+    var segs = uris(list);
+    if (!segs.length) return fail({ ok: false, kind: 'hls', reason: 'Playlist boş: yayın şu an kapalı olabilir' });
+    get(url.resolve(base, segs[segs.length - 1]), 1, function () { finish(height ? { ok: true, kind: 'hls', height: height } : { ok: true, kind: 'hls' }); }, fail);
+  };
+
+  if (!/\.m3u8(\?|#|$)/i.test(target)) {
+    return get(target, 1, function (res) {
+      if (/mpegurl/i.test(res.headers['content-type'] || '')) return finish({ ok: false, kind: 'page', reason: 'Bu bir yayın ama adresi .m3u8 ile bitmiyor; sayfa olarak açılıp boş kalır' });
+      var xfo = String(res.headers['x-frame-options'] || '').toLowerCase();
+      var ancestors = /frame-ancestors([^;]*)/i.exec(res.headers['content-security-policy'] || '');
+      if (/deny|sameorigin/.test(xfo) || (ancestors && !/\*/.test(ancestors[1]))) return finish({ ok: false, kind: 'page', reason: 'Site başka sayfaların içinde açılmaya izin vermiyor; TV\'de boş görünür' });
+      finish({ ok: true, kind: 'page' });
+    });
+  }
+  get(target, 512 * 1024, function (res, text, finalUrl) {
+    if (text.indexOf('#EXTM3U') < 0) return finish({ ok: false, kind: 'hls', reason: 'Bu bir yayın linki değil (' + (res.headers['content-type'] || 'bilinmeyen içerik').split(';')[0] + ' geldi)' });
+    if (text.indexOf('#EXT-X-STREAM-INF') < 0) return media(text, finalUrl, 0, finish);
+    var variants = [], height = 0;
+    text.split('\n').forEach(function (l) {
+      l = l.trim();
+      if (l.indexOf('#EXT-X-STREAM-INF') === 0) { var m = /RESOLUTION=\d+x(\d+)/.exec(l); height = m ? Number(m[1]) : 0; }
+      else if (l && l.charAt(0) !== '#') { variants.push({ uri: url.resolve(finalUrl, l), height: height }); height = 0; }
+    });
+    variants = variants.slice(0, 6);
+    if (!variants.length) return finish({ ok: false, kind: 'hls', reason: 'Playlist boş: yayın şu an kapalı olabilir' });
+    // The first variant that plays answers, with the best quality on offer; only when every one fails does the first failure.
+    var best = Math.max.apply(null, variants.map(function (v) { return v.height; }));
+    var failures = [];
+    var failed = function (r) { failures.push(r); if (failures.length === variants.length) finish(failures[0]); };
+    variants.forEach(function (v) {
+      get(v.uri, 512 * 1024, function (r2, list, variantUrl) { media(list, variantUrl, best, failed); }, failed);
+    });
+  });
+}
+
 function newlyLive(seen, channels) {
   return channels.filter(function (c) {
     var before = seen[c.slug];
@@ -806,6 +872,13 @@ function handle(req, res) {
       }
       res.writeHead(up.statusCode, { 'Content-Type': type || 'application/octet-stream', 'Access-Control-Allow-Origin': '*' });
       up.pipe(res);
+    });
+  }
+  if (u.pathname === '/web/check') {
+    if (!/^https?:\/\/[^\s]+$/.test(u.query.url || '')) return reply(res, 400, 'text/plain', 'url=http(s)://…');
+    return checkWeb(u.query.url, function (r) {
+      log('web check ' + (r.ok ? 'ok' : 'failed: ' + r.reason));
+      replyJson(res, r);
     });
   }
   if (u.pathname === '/web') {

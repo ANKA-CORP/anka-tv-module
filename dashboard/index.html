@@ -135,6 +135,11 @@
   .row { display: flex; gap: 10px; align-items: center; }
   .row input { flex: 1; min-width: 0; }
   .hint { font-size: 13px; color: var(--muted); margin-top: 8px; }
+  .check { font-size: 14px; font-weight: 600; margin-top: 10px; color: var(--muted); }
+  .check:empty { display: none; }
+  .check.ok { color: #6ee08f; }
+  .check.bad { color: var(--live); }
+  .check.warn { color: var(--warn); }
   .toggle { display: flex; align-items: center; gap: 8px; }
   .toggle span { flex: 1; color: var(--muted); }
   .toggle button { min-width: 76px; }
@@ -278,6 +283,7 @@
           <div class="row"><input type="text" id="web-name" placeholder="Ad, ör. Kamera" autocomplete="off" style="flex: 0 0 36%"><input type="text" id="web-url" placeholder="https://…" autocapitalize="off" autocomplete="off" spellcheck="false"></div>
           <div class="row" style="margin-top: 10px"><button type="submit" style="flex: 1">Kaydet</button><button type="button" class="primary" id="web-open" style="flex: 1">TV'de aç</button><button type="button" id="web-clear" class="icon" aria-label="Kaldır">✕</button></div>
         </form>
+        <div class="check" id="web-check"></div>
         <div class="hint">Kaydedince TV'nin Uygulamalar satırına bu adla bir kart gelir; açınca sayfa tam ekran, Geri kapatır. Adres .m3u8 ise anka tv'nin kendi oynatıcısında oynar. Bazı siteler başka sayfaların içinde açılmayı, bazı yayınlar da kendi siteleri dışında oynamayı engeller.</div>
       </section>
       <section class="surface">
@@ -714,16 +720,29 @@
       return post('/cmd', 'refresh').then(function () { return w; });
     });
   }
+  // The TV tries the address the way it would open it, so a dead or blocked link shows here, not on the TV.
+  function checkWeb(url) {
+    var box = $('web-check');
+    box.className = 'check';
+    box.textContent = url ? 'TV\'den deneniyor…' : '';
+    if (!url) return;
+    getJson('/web/check?url=' + encodeURIComponent(url)).then(function (r) {
+      if ($('web-url').value.trim() !== url) return;
+      box.className = 'check ' + (r.ok ? 'ok' : r.slow ? 'warn' : 'bad');
+      box.textContent = r.ok ? (r.kind === 'hls' ? '✓ Açılıyor' + (r.height ? ' · ' + r.height + 'p\'ye kadar' : '') : '✓ Sayfa açılıyor') : (r.slow ? '⚠ ' : '✗ ') + r.reason;
+    }).catch(function (e) { box.className = 'check bad'; box.textContent = '✗ Denenemedi: ' + e.message; });
+  }
   $('web-form').onsubmit = function (e) {
     e.preventDefault();
-    saveWeb($('web-url').value.trim()).then(function (w) { toast(w ? w.name + ' kartı kaydedildi' : 'Web kartı kaldırıldı'); })
+    var url = $('web-url').value.trim();
+    saveWeb(url).then(function (w) { toast(w ? w.name + ' kartı kaydedildi' : 'Web kartı kaldırıldı'); checkWeb(w ? url : ''); })
       .catch(function (err) { toast(/400/.test(err.message) || /url/.test(err.message) ? 'Adres https:// ile başlamalı' : 'Kaydedilemedi: ' + err.message, true); });
   };
   $('web-open').onclick = function () {
     post('/cmd', 'web').then(function () { toast('TV\'de açılıyor'); }).catch(function (e) { toast(e.message, true); });
   };
   $('web-clear').onclick = function () {
-    saveWeb('').then(function () { toast('Web kartı kaldırıldı'); }).catch(function (e) { toast(e.message, true); });
+    saveWeb('').then(function () { toast('Web kartı kaldırıldı'); checkWeb(''); }).catch(function (e) { toast(e.message, true); });
   };
 
   // ---- messages

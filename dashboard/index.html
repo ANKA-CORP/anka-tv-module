@@ -272,6 +272,14 @@
         <div class="quick" id="sleep-chips"></div>
         <div class="hint" id="sleep-hint">Süre dolunca yayın kapanır; TV'ye bağlıysa TV de kapanır.</div>
       </section>
+      <section>
+        <h2>Web kartı</h2>
+        <form id="web-form">
+          <div class="row"><input type="text" id="web-name" placeholder="Ad, ör. Kamera" autocomplete="off" style="flex: 0 0 36%"><input type="text" id="web-url" placeholder="https://…" autocapitalize="off" autocomplete="off" spellcheck="false"></div>
+          <div class="row" style="margin-top: 10px"><button type="submit" style="flex: 1">Kaydet</button><button type="button" class="primary" id="web-open" style="flex: 1">TV'de aç</button><button type="button" id="web-clear" class="icon" aria-label="Kaldır">✕</button></div>
+        </form>
+        <div class="hint">Kaydedince TV'nin Uygulamalar satırına bu adla bir kart gelir; açınca sayfa tam ekran, Geri kapatır. Bazı siteler başka sayfaların içinde açılmayı engeller.</div>
+      </section>
       <section class="surface">
         <div class="remote">
           <button class="blank" tabindex="-1"></button><button data-key="UP" aria-label="Yukarı">▲</button><button data-key="CH_UP" aria-label="Kanal yukarı">CH+</button>
@@ -693,6 +701,31 @@
     });
   });
 
+  // ---- the Web tile
+
+  function renderWeb(w) {
+    if (document.activeElement !== $('web-url')) $('web-url').value = w && w.url ? w.url : '';
+    if (document.activeElement !== $('web-name')) $('web-name').value = w && w.name ? w.name : '';
+    $('web-open').disabled = !(w && w.url);
+  }
+  function saveWeb(url) {
+    return post('/web', { name: $('web-name').value.trim(), url: url }).then(function (r) { return r.json(); }).then(function (w) {
+      renderWeb(w);
+      return post('/cmd', 'refresh').then(function () { return w; });
+    });
+  }
+  $('web-form').onsubmit = function (e) {
+    e.preventDefault();
+    saveWeb($('web-url').value.trim()).then(function (w) { toast(w ? w.name + ' kartı kaydedildi' : 'Web kartı kaldırıldı'); })
+      .catch(function (err) { toast(/400/.test(err.message) || /url/.test(err.message) ? 'Adres https:// ile başlamalı' : 'Kaydedilemedi: ' + err.message, true); });
+  };
+  $('web-open').onclick = function () {
+    post('/cmd', 'web').then(function () { toast('TV\'de açılıyor'); }).catch(function (e) { toast(e.message, true); });
+  };
+  $('web-clear').onclick = function () {
+    saveWeb('').then(function () { toast('Web kartı kaldırıldı'); }).catch(function (e) { toast(e.message, true); });
+  };
+
   // ---- messages
 
   ['Yemek hazır 🍲', 'Sesi kısar mısın?', 'Kapıya bakar mısın?', 'Yatma vakti 🌙'].forEach(function (text) {
@@ -969,6 +1002,7 @@
     });
     es.addEventListener('favourites', function () { loadFavourites().catch(function () {}); });
     es.addEventListener('sleep', function (e) { renderSleep(JSON.parse(e.data).at); });
+    es.addEventListener('web', function (e) { renderWeb(JSON.parse(e.data)); });
     es.addEventListener('notice', function (e) {
       var n = JSON.parse(e.data);
       if (n.kind === 'live') { toast('🔴 ' + n.text); loadFavourites().catch(function () {}); }
@@ -983,6 +1017,7 @@
     loadBosses();
     loadAuto();
     getJson('/sleep').then(function (r) { renderSleep(r.at); }).catch(function () {});
+    getJson('/web').then(renderWeb).catch(function () {});
     setInterval(function () { if (sleepAt) renderSleep(sleepAt > Date.now() ? sleepAt : 0); }, 30000);
     listen();
     // The stream only says when something changes; a quiet look every 12 s still notices the TV app closing.

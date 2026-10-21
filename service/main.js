@@ -19,6 +19,7 @@
 //   POST /reload-service                load the newest published version of this file (after tools/publish.sh)
 //   GET /autolaunch, POST /autolaunch   whether TizenBrew opens anka tv when it starts (its own config file)
 //   GET /sleep, POST /sleep             the sleep timer: {"minutes": 30} sets it, 0 clears it; GET says when
+//   GET /web, POST /web                 the Web tile: {"name": "…", "url": "https://…"} (an empty url removes it)
 //   GET /recent                         the channels watched last, newest first (from what the page reports)
 //   GET /events                         server-sent events for open dashboards: settings, favourites, state, notice
 //   GET /bosses, POST /boss-test        upcoming Black Desert (EU) boss spawns; send the next one's alert now
@@ -34,7 +35,7 @@ var url = require('url');
 // Not 8085: the spike module's service may still hold it until TizenBrew restarts.
 var PORT = Number(process.env.ANKA_PORT) || 8090;   // another port only in tools/test.sh
 // tools/publish.sh writes the published version here.
-var SERVICE_VERSION = '0.81.0 (8ea7399)';
+var SERVICE_VERSION = '0.82.0 (e819fe7)';
 var UA = 'Mozilla/5.0 (SMART-TV; Linux; Tizen 6.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/76.0.3809.146 TV Safari/537.36';
 var CACHE_MS = 20000;
 // TizenBrew keeps its own config in /home/owner/share; tools/dev.sh points these elsewhere on the Mac.
@@ -96,10 +97,13 @@ var APP_CATALOGUE = [
 // dashboard says which input it is on (settings.ps5Input, e.g. KEY_HDMI2).
 var PS5 = { id: 'ps5', name: 'PlayStation 5', color: '#0070d1', web: 'www.playstation.com', input: true };
 
+// Tiles that aren't TV apps: the PlayStation's input and a web page set from the dashboard.
 function withInputs(list) {
-  var key = (readData().settings || {}).ps5Input;
-  if (!/^KEY_HDMI\d$/.test(key || '')) return list;
-  return list.concat([{ id: PS5.id, name: PS5.name, color: PS5.color, icon: '/app-icon?id=' + PS5.id }]);
+  var data = readData();
+  var key = (data.settings || {}).ps5Input;
+  if (/^KEY_HDMI\d$/.test(key || '')) list = list.concat([{ id: PS5.id, name: PS5.name, color: PS5.color, icon: '/app-icon?id=' + PS5.id }]);
+  if (data.web && data.web.url) list = list.concat([{ id: 'web', name: data.web.name || 'Web', color: '#3d3d8f', url: data.web.url }]);
+  return list;
 }
 // The TV's own app API; on the Mac (tools/dev.sh) it's unset and launching only logs.
 // Called on the TV's network address: from 127.0.0.1 the TV answers launches with 401 (tried 2026-10-20).
@@ -762,6 +766,24 @@ function handle(req, res) {
   }
   if (u.pathname === '/events') return subscribe(req, res);
   if (u.pathname === '/recent') return replyJson(res, readData().recent || []);
+  if (u.pathname === '/web') {
+    if (req.method === 'POST') {
+      return readBody(req, function (b) {
+        var w;
+        try { w = JSON.parse(b); } catch (e) { w = null; }
+        var url = w && typeof w.url === 'string' ? w.url.trim() : '';
+        var name = w && typeof w.name === 'string' ? w.name.trim().slice(0, 24) : '';
+        if (url && (!/^https?:\/\/[^\s]+$/.test(url) || url.length > 500)) return reply(res, 400, 'text/plain', 'url: http(s), up to 500 characters');
+        var data = readData();
+        data.web = url ? { name: name || 'Web', url: url } : null;
+        writeData(data);
+        log('web tile: ' + (url ? data.web.name : 'removed'));
+        broadcast('web', data.web);
+        replyJson(res, data.web);
+      });
+    }
+    return replyJson(res, readData().web || null);
+  }
   if (u.pathname === '/sleep') {
     if (req.method === 'POST') {
       return readBody(req, function (b) {

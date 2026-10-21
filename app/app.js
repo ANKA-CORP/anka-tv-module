@@ -53,7 +53,7 @@ var Favourites = {
 // Tells the service (and so the dashboard) what's on screen.
 function reportState() {
   var s = Player.isOpen() ? Player.current() : null;
-  var state = { screen: s ? 'player' : 'grid', version: $('version').textContent };
+  var state = { screen: s ? 'player' : webOpen() ? 'web' : 'grid', version: $('version').textContent };
   if (s) {
     state.slug = s.slug; state.name = s.name; state.title = s.title; state.avatar = s.avatar;
     state.thumb = s.thumb; state.viewers = s.viewers; state.category = s.category; state.quality = Player.quality();
@@ -146,7 +146,7 @@ function loadRowsFor() {
       return slugs.length ? api('/channels?slugs=' + slugs.map(encodeURIComponent).join(',')) : [];
     }).catch(function () { return []; })
   ]).then(function (r) {
-    var apps = r[0].map(function (a) { return { kind: 'app', key: a.id, id: a.id, name: a.name, color: a.color, plate: a.plate, icon: a.icon }; });
+    var apps = r[0].map(function (a) { return { kind: 'app', key: a.id, id: a.id, name: a.name, color: a.color, plate: a.plate, icon: a.icon, url: a.url }; });
     var stream = function (s) { s.kind = 'stream'; s.key = s.slug; return s; };
     var favItems = r[1].map(stream).sort(function (a, b) { return (b.live - a.live) || (b.viewers - a.viewers); });
     var list = [];
@@ -538,7 +538,34 @@ function activate() {
   });
 }
 
+// ---- the Web tile: a page set from the dashboard, full screen in a frame; Back closes it.
+
+function openWeb(name, url) {
+  var box = $('web');
+  box.innerHTML = '';
+  var frame = el('iframe');
+  frame.setAttribute('allow', 'autoplay; fullscreen; encrypted-media; picture-in-picture');
+  frame.setAttribute('allowfullscreen', '');
+  frame.src = url;
+  box.appendChild(frame);
+  box.classList.add('open');
+  log('web: ' + name);
+  Toast.show({ text: name + ' · kapatmak için Geri', seconds: 4 });
+  reportState();
+}
+
+function webOpen() { return $('web').classList.contains('open'); }
+
+function closeWeb() {
+  var box = $('web');
+  box.classList.remove('open');
+  box.innerHTML = '';
+  updateFocus(true);
+  reportState();
+}
+
 function launchApp(a) {
+  if (a.id === 'web') return openWeb(a.name, a.url);
   log('launch ' + a.name);
   fetch(SERVICE + '/launch?id=' + encodeURIComponent(a.id), { method: 'POST' })
     .then(function (r) { return r.ok ? r.json() : r.text().then(function (t) { throw new Error(t); }); })
@@ -570,6 +597,7 @@ var enterTimer = null, enterLong = false;
 function handleKeyDown(name, repeat) {
   // OK or Back first dismisses a boss alert, over the home screen and the player alike.
   if (Toast.bossOpen() && (name === 'ENTER' || name === 'BACK')) { Toast.closeBoss(); return; }
+  if (webOpen()) { if (name === 'BACK') closeWeb(); return; }
   if (Player.isOpen()) { if (!repeat || name !== 'ENTER') Player.handleKey(name); return; }
   if (name === 'ENTER') {
     if (repeat || enterTimer) return;
@@ -639,6 +667,9 @@ function runCommand(cmd) {
     });
   } else if (parts[0] === 'reload') location.reload();
   else if (parts[0] === 'refresh') refresh();
+  else if (parts[0] === 'web') {
+    api('/web').then(function (w) { if (w && w.url) { if (Player.isOpen()) Player.close(); openWeb(w.name, w.url); } });
+  } else if (parts[0] === 'web-close') { if (webOpen()) closeWeb(); }
   else if (parts[0] === 'sleep') {
     if (Player.isOpen()) Player.close();
     Toast.show({ text: 'İyi geceler 🌙', seconds: 8 });
@@ -657,7 +688,7 @@ function poll() {
 // GitHub's raw files are at most 5 minutes old; jsDelivr's @main can be hours behind.
 var VERSION_URL = 'https://raw.githubusercontent.com/ANKA-CORP/anka-tv-module/main/version.json';
 // tools/publish.sh writes the published version here.
-var PAGE_VERSION = '0.81.0';
+var PAGE_VERSION = '0.82.0';
 
 // The number in "0.34.0": publishes only count up.
 function versionNumber(v) { return parseInt(String(v).split('.')[1], 10) || 0; }

@@ -333,6 +333,14 @@
     <div class="view" data-view="ayarlar">
       <h1>Ayarlar</h1>
       <section>
+        <h2>Ana ekran</h2>
+        <div class="toggle" role="group" aria-labelledby="layout-label">
+          <span id="layout-label">Düzen</span>
+          <button type="button" data-layout="classic">Klasik</button><button type="button" data-layout="vitrin">Vitrin</button>
+        </div>
+        <div class="hint">Vitrin: tam ekran duvar kağıdı ve altta cam bir uygulama dock'u; aşağı basınca Kick satırları.</div>
+      </section>
+      <section>
         <h2>Tema</h2>
         <div class="themes" id="themes"></div>
         <div class="toggle" role="group" aria-labelledby="motion-label" style="margin-top: 16px">
@@ -768,6 +776,9 @@
     Array.prototype.forEach.call(document.querySelectorAll('[data-ps5]'), function (b) {
       b.classList.toggle('on', b.dataset.ps5 === (settings.ps5Input || ''));
     });
+    Array.prototype.forEach.call(document.querySelectorAll('[data-layout]'), function (b) {
+      b.classList.toggle('on', b.dataset.layout === (settings.layout === 'vitrin' ? 'vitrin' : 'classic'));
+    });
     $('ps5-go').hidden = !settings.ps5Input;
   }
   Array.prototype.forEach.call(document.querySelectorAll('[data-ps5]'), function (b) {
@@ -786,6 +797,16 @@
     b.textContent = 'TV\'de "İzin ver"e bas…';
     getJson('/remote').then(function () { toast('TV bağlandı ✓'); b.textContent = 'TV bağlı ✓'; })
       .catch(function () { toast('İzin gelmedi, tekrar dene', true); b.textContent = 'TV\'ye bağlan (bir kez)'; b.disabled = false; });
+  });
+  Array.prototype.forEach.call(document.querySelectorAll('[data-layout]'), function (b) {
+    b.addEventListener('click', function () {
+      settings.layout = b.dataset.layout;
+      renderToggles();
+      post('/settings', { layout: settings.layout })
+        .then(function () { return post('/cmd', 'refresh'); })
+        .then(function () { toast(settings.layout === 'vitrin' ? 'Ana ekran: Vitrin' : 'Ana ekran: Klasik'); })
+        .catch(function (e) { toast('Kaydedilemedi: ' + e.message, true); });
+    });
   });
   $('ps5-go').addEventListener('click', function () {
     post('/launch?id=ps5', '').then(function () { toast('TV PlayStation 5\'e geçiyor'); })

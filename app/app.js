@@ -9,7 +9,8 @@ var LONG_PRESS_MS = 650;
 // Per row kind: cards fully on screen (one more peeks in), card width + margin, row height.
 var LAYOUT = {
   apps: { visible: 5, step: 320, height: 290 },
-  streams: { visible: 4, step: 416, height: 360 }
+  streams: { visible: 4, step: 416, height: 360 },
+  dock: { visible: 9, step: 182, height: 300 }
 };
 
 var rows = [];             // [{ id, kind, title, items, col, first, el, track }]
@@ -111,6 +112,9 @@ function loadSettings() {
       document.documentElement.dataset.theme = theme;
       log('theme ' + theme);
     }
+    // Ana ekran: "classic" (hero and rows) or "vitrin" (wallpaper and a dock of apps).
+    var mode = s.layout === 'vitrin' ? 'vitrin' : 'classic';
+    if (document.documentElement.dataset.layout !== mode) { document.documentElement.dataset.layout = mode; rendered = false; }
     // "Sade" in the dashboard stops all motion if the TV ever struggles.
     document.documentElement.dataset.motion = s.motion === 'reduced' ? 'reduced' : 'full';
   }).catch(function (e) { log('settings not loaded: ' + e); });
@@ -142,7 +146,7 @@ function loadRowsFor() {
   });
 }
 
-function layout(r) { return LAYOUT[r.kind]; }
+function layout(r) { return vitrin() && r.kind === 'apps' ? LAYOUT.dock : LAYOUT[r.kind]; }
 
 // Keep the focused card inside the visible window of its row.
 function scrollTo(r, col) {
@@ -186,6 +190,15 @@ function refresh() {
       Toast.show({ text: 'Liste yenilenemedi, birazdan tekrar denenecek.', level: 'warn' });
     }
   });
+}
+
+// ---- Vitrin's greeting over the wallpaper
+
+function renderGreeting() {
+  var now = new Date();
+  var h = now.getHours();
+  $('greet-text').textContent = h < 5 ? 'İyi geceler' : h < 12 ? 'Günaydın' : h < 18 ? 'İyi günler' : h < 23 ? 'İyi akşamlar' : 'İyi geceler';
+  $('greet-sub').textContent = now.toLocaleDateString('tr-TR', { weekday: 'long', day: 'numeric', month: 'long' });
 }
 
 // ---- widgets under the hero: the next boss and the favourites that are live, refreshed with the rows
@@ -239,7 +252,28 @@ function renderWidgets() {
 
 // ---- rendering
 
+function vitrin() { return document.documentElement.dataset.layout === 'vitrin'; }
+
+// In Vitrin the apps are a dock: a square icon (the app's own, or its colour with its name) over a small label.
+function dockCard(a) {
+  var c = el('div', 'card app dock');
+  var face = el('div', 'dock-icon');
+  face.style.background = a.icon ? (a.plate || 'transparent') : 'linear-gradient(135deg, ' + a.color + ' 0%, ' + shade(a.color) + ' 100%)';
+  if (a.icon) {
+    var img = el('img', a.plate ? 'plated' : '');
+    img.onerror = function () { face.removeChild(img); face.style.background = 'linear-gradient(135deg, ' + a.color + ' 0%, ' + shade(a.color) + ' 100%)'; face.appendChild(el('span', '', a.name)); };
+    img.src = SERVICE + a.icon;
+    face.appendChild(img);
+  } else {
+    face.appendChild(el('span', '', a.name));
+  }
+  c.appendChild(face);
+  c.appendChild(el('div', 'dock-label', a.name));
+  return c;
+}
+
 function appCard(a) {
+  if (vitrin()) return dockCard(a);
   var c = el('div', 'card app');
   c.style.background = 'linear-gradient(135deg, ' + a.color + ' 0%, ' + shade(a.color) + ' 100%)';
   // The app's own icon, read from the TV by the service (none of it is in this repo).
@@ -368,6 +402,8 @@ function updateFocus(instant) {
   });
   var r = rows[focusRow];
   if (!r) return;
+  document.documentElement.dataset.dock = vitrin() && r.kind === 'apps' ? 'on' : 'off';
+  if (document.documentElement.dataset.dock === 'on') renderGreeting();
   var c = r.track.children[r.col];
   if (c) c.classList.add('focused');
   var s = r.items[r.col];
@@ -605,7 +641,7 @@ function poll() {
 // GitHub's raw files are at most 5 minutes old; jsDelivr's @main can be hours behind.
 var VERSION_URL = 'https://raw.githubusercontent.com/ANKA-CORP/anka-tv-module/main/version.json';
 // tools/publish.sh writes the published version here.
-var PAGE_VERSION = '0.75.0';
+var PAGE_VERSION = '0.76.0';
 
 // The number in "0.34.0": publishes only count up.
 function versionNumber(v) { return parseInt(String(v).split('.')[1], 10) || 0; }

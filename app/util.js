@@ -14,7 +14,10 @@ window.addEventListener('error', function (e) { log('page error: ' + e.message +
 window.addEventListener('unhandledrejection', function (e) { log('unhandled rejection: ' + e.reason); });
 
 function api(path) {
+  var t0 = Date.now();
   return fetch(SERVICE + path).then(function (r) {
+    // Slow answers are what make the first screen late; say which.
+    if (Date.now() - t0 > 1000) log('slow: ' + path.split('?')[0] + ' took ' + (Date.now() - t0) + ' ms');
     if (!r.ok) return r.text().then(function (t) { throw new Error(t || 'HTTP ' + r.status); });
     return r.json();
   });
